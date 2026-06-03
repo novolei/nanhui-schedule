@@ -185,8 +185,16 @@ def auto_schedule():
         row[6] = '早' if row[6] in ('休','全') else row[6]
         result.append(row)
 
-    # 排班规则强制执行 (覆写模板)
+    # 刘晓庆早班优先 (她喜欢上早班)
     staff_names = [st['name'] for st in staff_list]
+    lxq_idx = staff_names.index('刘晓庆') if '刘晓庆' in staff_names else -1
+    if lxq_idx >= 0:
+        for d in range(7):
+            if d == 5: continue  # 周六全员全
+            if result[lxq_idx][d] not in ('休', '全'):
+                result[lxq_idx][d] = '早'
+
+    # 排班规则强制执行 (覆写模板)
     OPPOSITE_PAIRS = [('陈磊','刘晓庆')]
     SAME_PAIRS = [('胡倩','江凤'), ('陈梅芳','郭友琴'), ('刘晓庆','杨亚男')]
     TEAMS = [['胡倩','江凤','陈梅芳','郭友琴'], ['刘静','倪艺','杨亚男']]
