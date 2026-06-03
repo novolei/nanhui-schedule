@@ -190,12 +190,17 @@ function renderView(){
 function renderMy(){
   let h='<div class="card">';
   h+='<div class="search-box">';
-  h+='<input type="text" id="searchName" placeholder="输入你的姓名查看排班" value="'+state.searchName+'" onkeydown="if(event.key===\'Enter\')searchMy()">';
-  h+='<button class="btn btn-primary" onclick="searchMy()">查询</button>';
+  h+='<select id="searchName" style="flex:1;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:15px;outline:none" onchange="selectMy(this.value)">';
+  h+='<option value="">👤 选择姓名查看排班</option>';
+  for(const s of state.staff){
+    const sel = s.name === state.searchName ? ' selected' : '';
+    h+=`<option value="${s.name}"${sel}>${s.name}${s.brand ? ' ('+s.brand+')' : ''}</option>`;
+  }
+  h+='</select>';
   h+='</div></div>';
   
   if(!state.searchName){
-    h+='<div class="card"><p style="color:#999;text-align:center;padding:20px">输入姓名查看你的排班计划</p></div>';
+    h+='<div class="card"><p style="color:#999;text-align:center;padding:20px">请选择姓名查看你的排班计划</p></div>';
     return h;
   }
   
@@ -277,10 +282,9 @@ function renderMySchedule(st, ss, ws){
   return h;
 }
 
-function searchMy(){
-  const v=$('#searchName').value.trim();
-  if(!v){toast('请输入姓名');return}
-  state.searchName=v;
+function selectMy(name){
+  if(!name){state.searchName='';render();return}
+  state.searchName=name;
   render();
 }
 
