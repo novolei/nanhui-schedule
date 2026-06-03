@@ -1,0 +1,249 @@
+import sqlite3, os, random, json, hashlib
+from datetime import datetime, timedelta
+from flask import Flask, g, request, jsonify, render_template, send_from_directory
+
+app = Flask(__name__)
+DB_PATH = os.path.join(os.path.dirname(__file__), 'schedule.db')
+PASSWORD_HASH = hashlib.sha256(b'admin123').hexdigest()
+
+# ---- Database helpers ----
+def get_db():
+    if 'db' not in g:
+        g.db = sqlite3.connect(DB_PATH)
+        g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA journal_mode=WAL")
+    return g.db
+
+@app.teardown_appcontext
+def close_db(e):
+    db = g.pop('db', None)
+    if db: db.close()
+
+def init_db():
+    db = get_db()
+    db.executescript('''
+        CREATE TABLE IF NOT EXISTS staff (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL,
+            brand      TEXT DEFAULT '',
+            role       TEXT DEFAULT '营业员',
+            sort_order INTEGER DEFAULT 0,
+            is_active  INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE TABLE IF NOT EXISTS schedules (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            week_start  TEXT NOT NULL,
+            staff_id    INTEGER REFERENCES staff(id),
+            mon_shift   TEXT DEFAULT '',
+            tue_shift   TEXT DEFAULT '',
+            wed_shift   TEXT DEFAULT '',
+            thu_shift   TEXT DEFAULT '',
+            fri_shift   TEXT DEFAULT '',
+            sat_shift   TEXT DEFAULT '',
+            sun_shift   TEXT DEFAULT '',
+            created_at  TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(week_start, staff_id)
+        );
+        CREATE TABLE IF NOT EXISTS published_weeks (
+            week_start   TEXT PRIMARY KEY,
+            published_at TEXT DEFAULT (datetime('now','localtime'))
+        );
+    ''')
+    # seed default staff if empty
+    cur = db.execute("SELECT count(*) FROM staff")
+    if cur.fetchone()[0] == 0:
+        names = [
+            ('陈磊','销售经理','销售经理',1),
+            ('刘晓庆','营业员','营业员',2),
+            ('胡倩','松下','营业员',3),
+            ('江凤','苏泊尔','营业员',4),
+            ('陈梅芳','美的','营业员',5),
+            ('郭友琴','九阳','营业员',6),
+            ('刘静','石头','营业员',7),
+            ('倪艺','追觅','营业员',8),
+            ('杨亚男','云鲸','营业员',9),
+        ]
+        db.executemany("INSERT INTO staff(name,brand,role,sort_order) VALUES(?,?,?,?)", names)
+        db.commit()
+
+with app.app_context():
+    init_db()
+
+# ---- Auth ----
+def check_auth(req):
+    pwd = req.headers.get('X-Admin-Password', '')
+    return hashlib.sha256(pwd.encode()).hexdigest() == PASSWORD_HASH
+
+# ---- API: Staff ----
+@app.route('/api/staff', methods=['GET'])
+def get_staff():
+    db = get_db()
+    rows = db.execute("SELECT * FROM staff WHERE is_active=1 ORDER BY sort_order").fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/staff', methods=['POST'])
+def add_staff():
+    if not check_auth(request): return jsonify({'error':'密码错误'}), 401
+    data = request.json
+    db = get_db()
+    cur = db.execute("INSERT INTO staff(name,brand,role,sort_order) VALUES(?,?,?,?)",
+                     (data['name'], data.get('brand',''), data.get('role','营业员'), data.get('sort_order',99)))
+    db.commit()
+    return jsonify({'id': cur.lastrowid})
+
+@app.route('/api/staff/<int:sid>', methods=['PUT'])
+def update_staff(sid):
+    if not check_auth(request): return jsonify({'error':'密码错误'}), 401
+    data = request.json
+    db = get_db()
+    db.execute("UPDATE staff SET name=?, brand=?, role=?, sort_order=? WHERE id=?",
+               (data['name'], data.get('brand',''), data.get('role','营业员'), data.get('sort_order',99), sid))
+    db.commit()
+    return jsonify({'ok':True})
+
+@app.route('/api/staff/<int:sid>', methods=['DELETE'])
+def delete_staff(sid):
+    if not check_auth(request): return jsonify({'error':'密码错误'}), 401
+    db = get_db()
+    db.execute("UPDATE staff SET is_active=0 WHERE id=?", (sid,))
+    db.commit()
+    return jsonify({'ok':True})
+
+# ---- API: Schedules ----
+@app.route('/api/schedules', methods=['GET'])
+def get_schedules():
+    ws = request.args.get('week_start', '')
+    db = get_db()
+    rows = db.execute("SELECT s.*, st.name, st.brand FROM schedules s JOIN staff st ON s.staff_id=st.id WHERE s.week_start=? ORDER BY st.sort_order", (ws,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/schedules', methods=['PUT'])
+def save_schedules():
+    if not check_auth(request): return jsonify({'error':'密码错误'}), 401
+    data = request.json
+    ws = data['week_start']
+    items = data['schedules']
+    db = get_db()
+    for item in items:
+        db.execute("""
+            INSERT INTO schedules(week_start,staff_id,mon_shift,tue_shift,wed_shift,thu_shift,fri_shift,sat_shift,sun_shift)
+            VALUES(?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(week_start,staff_id) DO UPDATE SET
+                mon_shift=excluded.mon_shift, tue_shift=excluded.tue_shift,
+                wed_shift=excluded.wed_shift, thu_shift=excluded.thu_shift,
+                fri_shift=excluded.fri_shift, sat_shift=excluded.sat_shift,
+                sun_shift=excluded.sun_shift
+        """, (ws, item['staff_id'], item['mon_shift'], item['tue_shift'], item['wed_shift'],
+              item['thu_shift'], item['fri_shift'], item['sat_shift'], item['sun_shift']))
+    db.commit()
+    return jsonify({'ok':True})
+
+@app.route('/api/schedules/auto', methods=['POST'])
+def auto_schedule():
+    if not check_auth(request): return jsonify({'error':'密码错误'}), 401
+    data = request.json
+    ws = data['week_start']
+    db = get_db()
+    staff_rows = db.execute("SELECT * FROM staff WHERE is_active=1 ORDER BY sort_order").fetchall()
+    staff_list = [dict(r) for r in staff_rows]
+    n = len(staff_list)
+    if n == 0: return jsonify({'schedules':[]})
+
+    days = ['mon_shift','tue_shift','wed_shift','thu_shift','fri_shift','sat_shift','sun_shift']
+    shifts = ['' for _ in range(7)]
+    result = [shifts[:] for _ in range(n)]
+
+    # 1) assign 休 - spread out
+    idxs = list(range(n))
+    random.shuffle(idxs)
+    for i in range(min(n, 7)):
+        result[idxs[i]][i % 7] = '休'
+    for i in range(7, n):
+        counts = [sum(1 for r in result if r[d]=='休') for d in range(7)]
+        mn = min(counts)
+        cand = [d for d,c in enumerate(counts) if c==mn]
+        result[idxs[i]][random.choice(cand)] = '休'
+
+    # 2) assign 全 - 1 per day
+    used = set()
+    for d in range(7):
+        avail = [i for i in range(n) if i not in used and result[i][d] != '休']
+        if avail:
+            pick = random.choice(avail)
+            result[pick][d] = '全'
+            used.add(pick)
+    for i in range(n):
+        if i not in used:
+            for d in range(7):
+                if result[i][d] == '':
+                    result[i][d] = '全'
+                    break
+
+    # 3) balance 早/晚 for remaining slots
+    for d in range(7):
+        empty = [i for i in range(n) if result[i][d] == '']
+        # half early, half late
+        half = len(empty) // 2
+        random.shuffle(empty)
+        for j, i in enumerate(empty):
+            result[i][d] = '早' if j < half else '晚'
+
+    # save to db
+    db.execute("DELETE FROM schedules WHERE week_start=?", (ws,))
+    for i, st in enumerate(staff_list):
+        db.execute("""
+            INSERT INTO schedules(week_start,staff_id,mon_shift,tue_shift,wed_shift,thu_shift,fri_shift,sat_shift,sun_shift)
+            VALUES(?,?,?,?,?,?,?,?,?)
+        """, (ws, st['id']) + tuple(result[i]))
+    db.commit()
+
+    # return full data
+    rows = db.execute("SELECT s.*, st.name, st.brand FROM schedules s JOIN staff st ON s.staff_id=st.id WHERE s.week_start=? ORDER BY st.sort_order", (ws,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+# ---- API: Publish ----
+@app.route('/api/publish', methods=['GET'])
+def get_published():
+    db = get_db()
+    rows = db.execute("SELECT * FROM published_weeks ORDER BY week_start DESC").fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/publish', methods=['POST'])
+def publish():
+    if not check_auth(request): return jsonify({'error':'密码错误'}), 401
+    ws = request.json['week_start']
+    db = get_db()
+    db.execute("INSERT OR REPLACE INTO published_weeks(week_start) VALUES(?)", (ws,))
+    db.commit()
+    return jsonify({'ok':True})
+
+@app.route('/api/publish/<week_start>', methods=['DELETE'])
+def unpublish(week_start):
+    if not check_auth(request): return jsonify({'error':'密码错误'}), 401
+    db = get_db()
+    db.execute("DELETE FROM published_weeks WHERE week_start=?", (week_start,))
+    db.commit()
+    return jsonify({'ok':True})
+
+# ---- API: Password ----
+@app.route('/api/check_password', methods=['POST'])
+def check_password():
+    pwd = request.json.get('password', '')
+    ok = hashlib.sha256(pwd.encode()).hexdigest() == PASSWORD_HASH
+    return jsonify({'ok': ok})
+
+# ---- Serve frontend ----
+@app.route('/')
+def index():
+    return send_from_directory('templates', 'index.html')
+
+@app.route('/<path:path>')
+def static_files(path):
+    if path.startswith('static/'):
+        return send_from_directory('.', path)
+    return send_from_directory('templates', 'index.html')
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
