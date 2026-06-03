@@ -62,7 +62,7 @@ def init_db():
             ('郭友琴','九阳','营业员',6),
             ('刘静','石头','营业员',7),
             ('倪艺','追觅','营业员',8),
-            ('杨亚男','云鲸','营业员',9),
+            ('杨亚男','科沃斯','营业员',9),
         ]
         db.executemany("INSERT INTO staff(name,brand,role,sort_order) VALUES(?,?,?,?)", names)
         db.commit()
