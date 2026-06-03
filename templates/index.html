@@ -619,8 +619,204 @@ function runSelfCheck(){
   html+='<details style="margin-top:4px"><summary style="color:#d48806;cursor:pointer;font-weight:500">💡 查看调整建议</summary>';
   html+='<ul style="margin:6px 0 0 0;padding-left:16px;line-height:1.8">';
   for(const sug of suggestions) html+=`<li style="color:#389e0d">${sug}</li>`;
-  html+='</ul></details></div>';
+  html+='</ul></details>';
+  html+=`<button class="btn btn-warning btn-block" style="margin-top:10px" onclick="autoFix()">🔧 一键修复 (${issues.length}个问题)</button>`;
+  html+='</div>';
   panel.innerHTML=html;
+}
+
+function autoFix(){
+  const schedules = state.schedules;
+  if(!schedules || schedules.length === 0) return;
+  
+  // ---- Phase 1: Fix each day to have exactly 1休 + 1全 ----
+  for(let d=0;d<7;d++){
+    const key=DAY_KEYS[d];
+    // Count current
+    let 休People=[], 全People=[], 早People=[], 晚People=[];
+    for(const s of schedules){
+      const shift=s[key]||'';
+      if(shift==='休') 休People.push(s);
+      else if(shift==='全') 全People.push(s);
+      else if(shift==='早') 早People.push(s);
+      else if(shift==='晚') 晚People.push(s);
+    }
+    
+    // Fix excess 休 → move to 早 or 晚 (whichever needs more)
+    while(休People.length > 1){
+      const p = 休People.pop();
+      p[key] = 早People.length <= 晚People.length ? '早' : '晚';
+      (p[key]==='早' ? 早People : 晚People).push(p);
+    }
+    // Fix excess 全 → move to 早 or 晚
+    while(全People.length > 1){
+      const p = 全People.pop();
+      p[key] = 早People.length <= 晚People.length ? '早' : '晚';
+      (p[key]==='早' ? 早People : 晚People).push(p);
+    }
+    // Fix missing 休 → take from 早 or 晚 (whichever has more)
+    if(休People.length === 0 && 全People.length === 0){
+      // Need both 休 and 全
+      const pool = 早People.length >= 晚People.length ? 早People : 晚People;
+      const p1 = pool.pop();
+      p1[key] = '休'; 休People.push(p1);
+      const pool2 = 早People.length >= 晚People.length ? 早People : 晚People;
+      if(pool2.length > 0){
+        const p2 = pool2.pop();
+        p2[key] = '全'; 全People.push(p2);
+      }
+    } else if(休People.length === 0){
+      // Need 1 休
+      const pool = 早People.length >= 晚People.length ? 早People : 晚People;
+      if(pool.length > 0){
+        const p = pool.pop();
+        p[key] = '休'; 休People.push(p);
+      }
+    }
+    if(全People.length === 0){
+      const pool = 早People.length >= 晚People.length ? 早People : 晚People;
+      if(pool.length > 0){
+        const p = pool.pop();
+        p[key] = '全'; 全People.push(p);
+      }
+    }
+    
+    // Balance 早/晚 for remaining people
+    早People = []; 晚People = [];
+    for(const s of schedules){
+      const shift=s[key]||'';
+      if(shift==='早') 早People.push(s);
+      else if(shift==='晚') 晚People.push(s);
+    }
+    while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
+      if(早People.length > 晚People.length){
+        const p = 早People.pop();
+        p[key] = '晚'; 晚People.push(p);
+      } else {
+        const p = 晚People.pop();
+        p[key] = '早'; 早People.push(p);
+      }
+    }
+  }
+  
+  // ---- Phase 2: Fix each person to have exactly 1休 + 1全 ----
+  for(const s of schedules){
+    let 休Days=[], 全Days=[], 早Days=[], 晚Days=[];
+    for(let d=0;d<7;d++){
+      const shift=s[DAY_KEYS[d]]||'';
+      if(shift==='休') 休Days.push(d);
+      else if(shift==='全') 全Days.push(d);
+      else if(shift==='早') 早Days.push(d);
+      else if(shift==='晚') 晚Days.push(d);
+    }
+    
+    // Fix excess 休
+    while(休Days.length > 1){
+      const day = 休Days.pop();
+      // Check what that day needs (which shift is currently short)
+      const dayShifts = schedules.map(x=>x[DAY_KEYS[day]]||'');
+      const 早C = dayShifts.filter(x=>x==='早').length;
+      const 晚C = dayShifts.filter(x=>x==='晚').length;
+      s[DAY_KEYS[day]] = 早C <= 晚C ? '早' : '晚';
+      (s[DAY_KEYS[day]]==='早' ? 早Days : 晚Days).push(day);
+    }
+    // Fix excess 全
+    while(全Days.length > 1){
+      const day = 全Days.pop();
+      const dayShifts = schedules.map(x=>x[DAY_KEYS[day]]||'');
+      const 早C = dayShifts.filter(x=>x==='早').length;
+      const 晚C = dayShifts.filter(x=>x==='晚').length;
+      s[DAY_KEYS[day]] = 早C <= 晚C ? '早' : '晚';
+      (s[DAY_KEYS[day]]==='早' ? 早Days : 晚Days).push(day);
+    }
+    // Fix missing 休
+    if(休Days.length === 0){
+      const pool = [...早Days,...晚Days];
+      // Pick a day where this person is not needed for 休/全 balance
+      for(const day of pool){
+        const day休 = schedules.filter(x=>x[DAY_KEYS[day]]==='休').length;
+        if(day休 === 0){
+          s[DAY_KEYS[day]] = '休';
+          休Days.push(day);
+          break;
+        }
+      }
+      if(休Days.length === 0 && pool.length > 0){
+        s[DAY_KEYS[pool[0]]] = '休';
+        休Days.push(pool[0]);
+      }
+    }
+    // Fix missing 全
+    if(全Days.length === 0){
+      const pool = [...早Days,...晚Days];
+      for(const day of pool){
+        if(休Days.includes(day)) continue;
+        const day全 = schedules.filter(x=>x[DAY_KEYS[day]]==='全').length;
+        if(day全 === 0){
+          s[DAY_KEYS[day]] = '全';
+          全Days.push(day);
+          break;
+        }
+      }
+      if(全Days.length === 0 && pool.length > 0){
+        // Try any day not 休
+        for(const day of pool){
+          if(!休Days.includes(day)){
+            s[DAY_KEYS[day]] = '全';
+            break;
+          }
+        }
+      }
+    }
+    
+    // Balance 早/晚 for remaining days
+    早Days=[]; 晚Days=[];
+    for(let d=0;d<7;d++){
+      const shift=s[DAY_KEYS[d]]||'';
+      if(shift==='早') 早Days.push(d);
+      else if(shift==='晚') 晚Days.push(d);
+    }
+    // Should have exactly 5 days of 早+晚; balance to 2-3 early, 2-3 late
+    while(Math.abs(早Days.length - 晚Days.length) > 1 && 早Days.length + 晚Days.length > 2){
+      let changed = false;
+      if(早Days.length > 晚Days.length){
+        // Try to find a day where changing 早→晚 helps daily balance
+        for(const day of 早Days){
+          const day晚 = schedules.filter(x=>x[DAY_KEYS[day]]==='晚').length;
+          const day早 = schedules.filter(x=>x[DAY_KEYS[day]]==='早').length;
+          if(day早 > day晚 + 1){
+            s[DAY_KEYS[day]] = '晚';
+            早Days = 早Days.filter(x=>x!==day); 晚Days.push(day);
+            changed = true;
+            break;
+          }
+        }
+        if(!changed && 早Days.length > 0){
+          const day = 早Days.pop();
+          s[DAY_KEYS[day]] = '晚'; 晚Days.push(day);
+        }
+      } else {
+        for(const day of 晚Days){
+          const day早 = schedules.filter(x=>x[DAY_KEYS[day]]==='早').length;
+          const day晚 = schedules.filter(x=>x[DAY_KEYS[day]]==='晚').length;
+          if(day晚 > day早 + 1){
+            s[DAY_KEYS[day]] = '早';
+            晚Days = 晚Days.filter(x=>x!==day); 早Days.push(day);
+            changed = true;
+            break;
+          }
+        }
+        if(!changed && 晚Days.length > 0){
+          const day = 晚Days.pop();
+          s[DAY_KEYS[day]] = '早'; 早Days.push(day);
+        }
+      }
+    }
+  }
+  
+  // Re-run self-check
+  runSelfCheck();
+  toast('🔧 已自动修复，请检查结果');
 }
 
 async function saveEdits(){
