@@ -813,7 +813,7 @@ function autoFix(){
     }
   }
   
-  // ---- Phase 4: Fix each person - exactly 1休 (Mon-Thu only), 3早2晚1休1全 ----
+  // ---- Phase 4: Fix each person — exactly 1休 (Mon-Thu only) ----
   for(const s of schedules){
     let 休Days=[], 早Days=[], 晚Days=[];
     for(let d=0;d<7;d++){
@@ -845,28 +845,6 @@ function autoFix(){
       }
       if(休Days.length === 0 && pool.length > 0){
         s[DAY_KEYS[pool[0]]] = '休'; 休Days.push(pool[0]);
-      }
-    }
-    
-    // ---- 调整为3早2晚 (针对非休非全的5天: Mon/ Tue/ Wed/ Thu工作 + Fri + Sun) ----
-    // 先收集所有非休非全的天
-    const workDays = [];
-    for(let d=0;d<7;d++){
-      if(d===5) continue; // 周六全跳过
-      const shift=s[DAY_KEYS[d]]||'';
-      if(shift!=='休' && shift!=='全' && shift!=='') workDays.push({d,shift});
-    }
-    let 早c = workDays.filter(x=>x.shift==='早').length;
-    let 晚c = workDays.filter(x=>x.shift==='晚').length;
-    const total = 早c+晚c; // 应为5
-    if(total === 5 && (早c !== 3 || 晚c !== 2)){
-      for(const w of workDays){
-        if(早c > 3 && w.shift === '早'){
-          s[DAY_KEYS[w.d]] = '晚'; 早c--; 晚c++;
-        } else if(晚c > 2 && w.shift === '晚'){
-          s[DAY_KEYS[w.d]] = '早'; 晚c--; 早c++;
-        }
-        if(早c===3 && 晚c===2) break;
       }
     }
   }
@@ -904,7 +882,30 @@ function autoFix(){
     }
   }
 
-  // ---- Phase 6: 同班组 (同班次 — 最低优先级) ----
+  // ---- Phase 6: 每人3早2晚 (与同班组同级) ----
+  for(const s of schedules){
+    const workDays = [];
+    for(let d=0;d<7;d++){
+      if(d===5) continue;
+      const shift=s[DAY_KEYS[d]]||'';
+      if(shift!=='休' && shift!=='全' && shift!=='') workDays.push({d,shift});
+    }
+    let 早c = workDays.filter(x=>x.shift==='早').length;
+    let 晚c = workDays.filter(x=>x.shift==='晚').length;
+    const total = 早c+晚c;
+    if(total === 5 && (早c !== 3 || 晚c !== 2)){
+      for(const w of workDays){
+        if(早c > 3 && w.shift === '早'){
+          s[DAY_KEYS[w.d]] = '晚'; 早c--; 晚c++;
+        } else if(晚c > 2 && w.shift === '晚'){
+          s[DAY_KEYS[w.d]] = '早'; 晚c--; 早c++;
+        }
+        if(早c===3 && 晚c===2) break;
+      }
+    }
+  }
+
+  // ---- Phase 7: 同班组 (同班次 — 与3早2晚同级) ----
   for(let d=0;d<7;d++){
     if(d === 5) continue;
     const key=DAY_KEYS[d];

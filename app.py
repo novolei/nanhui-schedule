@@ -217,9 +217,8 @@ def auto_schedule():
                 if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] == result[ib][d]:
                     result[ib][d] = '晚' if result[ia][d] == '早' else '早'
 
-    # 每人每周3早2晚1休1全 (除周六全外, 其余6天: 1休+3早+2晚)
+    # 3. 每人每周1休 (Mon-Thu恰1天休)
     for row in result:
-        # 确保 Mon-Thu 恰有1天休
         mon_thu_休 = [d for d in range(4) if row[d] == '休']
         while len(mon_thu_休) > 1:
             d = mon_thu_休.pop()
@@ -229,20 +228,8 @@ def auto_schedule():
                 if row[d] in ('早','晚'):
                     row[d] = '休'
                     break
-        # 统计非休非全的天 (应为5天)
-        days = [d for d in range(7) if row[d] not in ('休','全')]
-        早c = sum(1 for d in days if row[d]=='早')
-        晚c = sum(1 for d in days if row[d]=='晚')
-        # 调整为3早2晚
-        for d in days:
-            if 早c > 3 and row[d] == '早':
-                row[d] = '晚'
-                早c -= 1; 晚c += 1
-            elif 晚c > 2 and row[d] == '晚':
-                row[d] = '早'
-                晚c -= 1; 早c += 1
 
-    # 平衡组: 组内早晚均衡 (最低优先级)
+    # 平衡组: 组内早晚均衡
     for d in range(7):
         if d == 5: continue
         for team in TEAMS:
@@ -263,7 +250,20 @@ def auto_schedule():
                             result[i][d] = '早'
                             cur_晚 -= 1; cur_早 += 1
 
-    # 4. 同班组: 同班次 (最低优先级)
+    # 4a. 每人3早2晚 (与同班组同级)
+    for row in result:
+        days = [d for d in range(7) if row[d] not in ('休','全')]
+        早c = sum(1 for d in days if row[d]=='早')
+        晚c = sum(1 for d in days if row[d]=='晚')
+        for d in days:
+            if 早c > 3 and row[d] == '早':
+                row[d] = '晚'
+                早c -= 1; 晚c += 1
+            elif 晚c > 2 and row[d] == '晚':
+                row[d] = '早'
+                晚c -= 1; 早c += 1
+
+    # 4b. 同班组: 同班次 (与3早2晚同级)
     for d in range(7):
         if d == 5: continue
         for a, b in SAME_PAIRS:
