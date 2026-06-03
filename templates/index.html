@@ -26,16 +26,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .btn-block{width:100%;margin-bottom:8px}
 .schedule-grid{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .schedule-grid table{width:100%;border-collapse:collapse;font-size:13px;min-width:600px}
-.schedule-grid th,.schedule-grid td{padding:6px 4px;text-align:center;border:1px solid #eee}
+.schedule-grid th,.schedule-grid td{padding:8px 6px;text-align:center;border:1px solid #e8e8e8}
 .schedule-grid th{background:#f0f5ff;color:#333;font-weight:600;position:sticky;top:0}
-.schedule-grid .name-col{text-align:left;padding-left:8px;font-weight:500;white-space:nowrap;background:#fafafa}
-.shift-早{background:#e6f7ff;color:#1890ff;font-weight:600}
-.shift-晚{background:#fff7e6;color:#fa8c16;font-weight:600}
-.shift-休{background:#f5f5f5;color:#999}
-.shift-全{background:#f6ffed;color:#52c41a;font-weight:600}
-.shift-select{cursor:pointer;min-width:28px;display:inline-block;padding:2px 0;border-radius:4px}
-.shift-select:hover{opacity:.7}
-.shift-select.selected{border:2px solid #4a90d9;border-radius:4px}
+.schedule-grid td{transition:background .15s}
+.schedule-grid tbody tr:hover td{background:#fafafa}
+.schedule-grid .name-col{text-align:left;padding-left:10px;font-weight:500;white-space:nowrap;background:#fafafa;border-right:2px solid #e8e8e8}
+.shift-早{background:#d4edff;color:#0050b3;font-weight:700;border-radius:4px}
+.shift-晚{background:#ffe7ba;color:#d46b08;font-weight:700;border-radius:4px}
+.shift-休{background:#f0f0f0;color:#8c8c8c;font-style:italic;border-radius:4px}
+.shift-全{background:#d9f7be;color:#237804;font-weight:700;border-radius:4px}
+.shift-select{cursor:pointer;min-width:28px;display:inline-block;padding:4px 8px;border-radius:6px;transition:all .15s}
+.shift-select:hover{opacity:.8;transform:scale(1.05)}
+.shift-select.selected{border:2px solid #4a90d9;border-radius:6px}
 .staff-list .staff-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f0f0}
 .staff-info{display:flex;align-items:center;gap:8px}
 .staff-name{font-weight:500}
@@ -92,7 +94,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 const DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
 const DAY_KEYS = ['mon_shift','tue_shift','wed_shift','thu_shift','fri_shift','sat_shift','sun_shift'];
 const SHIFTS = ['早','晚','休','全'];
-const SHIFT_COLORS = {早:'#1890ff',晚:'#fa8c16',休:'#999',全:'#52c41a'};
+const SHIFT_COLORS = {早:'#0050b3',晚:'#d46b08',休:'#8c8c8c',全:'#237804'};
 
 let state = { staff:[], schedules:[], publishedWeeks:[], isAdmin:false, tab:'view', editingWeekStart:null, searchName:'' };
 
