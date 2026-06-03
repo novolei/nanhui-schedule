@@ -187,6 +187,33 @@ def auto_schedule():
 
     staff_names = [st['name'] for st in staff_list]
     
+    # 排班规则强制执行 (覆写模板)
+    OPPOSITE_PAIRS = [('陈磊','刘晓庆')]
+    SAME_PAIRS = [('胡倩','江凤'), ('陈梅芳','郭友琴'), ('刘晓庆','杨亚男')]
+    TEAMS = [['胡倩','江凤','陈梅芳','郭友琴'], ['刘静','倪艺','杨亚男']]
+    for d in range(7):
+        if d == 5: continue  # 周六全员全跳过
+        # 1. 同班组: 同班次 (最高优先级)
+        for a, b in SAME_PAIRS:
+            ia = staff_names.index(a) if a in staff_names else -1
+            ib = staff_names.index(b) if b in staff_names else -1
+            if ia >= 0 and ib >= 0:
+                if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] != result[ib][d]:
+                    result[ib][d] = result[ia][d]
+                if result[ia][d] == '休' and result[ib][d] != '休':
+                    result[ia][d] = result[ib][d]
+                if result[ib][d] == '休' and result[ia][d] != '休':
+                    result[ib][d] = result[ia][d]
+        # 2. 对班组: 一早一晚 (必须适用)
+        for a, b in OPPOSITE_PAIRS:
+            ia = staff_names.index(a) if a in staff_names else -1
+            ib = staff_names.index(b) if b in staff_names else -1
+            if ia >= 0 and ib >= 0:
+                if result[ia][d] == '休' and result[ib][d] == '休':
+                    result[ib][d] = '早'
+                if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] == result[ib][d]:
+                    result[ib][d] = '晚' if result[ia][d] == '早' else '早'
+
     # 每人每周3早2晚1休1全 (除周六全外, 其余6天: 1休+3早+2晚)
     for row in result:
         # 确保 Mon-Thu 恰有1天休
@@ -212,33 +239,9 @@ def auto_schedule():
                 row[d] = '早'
                 晚c -= 1; 早c += 1
 
-    # 排班规则强制执行 (覆写模板)
-    OPPOSITE_PAIRS = [('陈磊','刘晓庆')]
-    SAME_PAIRS = [('胡倩','江凤'), ('陈梅芳','郭友琴'), ('刘晓庆','杨亚男')]
-    TEAMS = [['胡倩','江凤','陈梅芳','郭友琴'], ['刘静','倪艺','杨亚男']]
+    # 平衡组: 组内早晚均衡 (最低优先级)
     for d in range(7):
-        if d == 5: continue  # 周六全员全跳过
-        # 1. 同班组: 同班次 (优先)
-        for a, b in SAME_PAIRS:
-            ia = staff_names.index(a) if a in staff_names else -1
-            ib = staff_names.index(b) if b in staff_names else -1
-            if ia >= 0 and ib >= 0:
-                if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] != result[ib][d]:
-                    result[ib][d] = result[ia][d]
-                if result[ia][d] == '休' and result[ib][d] != '休':
-                    result[ia][d] = result[ib][d]
-                if result[ib][d] == '休' and result[ia][d] != '休':
-                    result[ib][d] = result[ia][d]
-        # 2. 对班组: 一早一晚
-        for a, b in OPPOSITE_PAIRS:
-            ia = staff_names.index(a) if a in staff_names else -1
-            ib = staff_names.index(b) if b in staff_names else -1
-            if ia >= 0 and ib >= 0:
-                if result[ia][d] == '休' and result[ib][d] == '休':
-                    result[ib][d] = '早'
-                if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] == result[ib][d]:
-                    result[ib][d] = '晚' if result[ia][d] == '早' else '早'
-        # 3. 平衡组: 内部早晚平衡
+        if d == 5: continue
         for team in TEAMS:
             idxs = [staff_names.index(n) for n in team if n in staff_names]
             if len(idxs) < 2: continue

@@ -610,6 +610,8 @@ function runSelfCheck(){
       else if(shift==='休')休Count++;
       else if(shift==='全')全Count++;
     }
+    let personIssues = [];
+    // Check 早/晚 balance: Mon-Thu = 4天, 1休, 剩3天; 全周(除休全)应有3早2晚
     // Check 早/晚 balance: Mon-Thu = 4天, 1休, 剩3天; 全周(除休全)应有3早2晚
     const totalShifts = 早Count+晚Count;
     if(休Count !== 1) personIssues.push(`休${休Count}天 (应恰1天)`);
@@ -715,7 +717,7 @@ function autoFix(){
     if(s[DAY_KEYS[6]] === '全') s[DAY_KEYS[6]] = '早';
   }
 
-  // ---- Phase 0: 排班规则强制执行 (覆写手动变更) ----
+  // ---- Phase 1: 同班组 (同班次 — 最高优先级) ----
   for(let d=0;d<7;d++){
     if(d === 5) continue; // 周六全员全跳过
     const key=DAY_KEYS[d];
@@ -735,7 +737,7 @@ function autoFix(){
       if(sh1 === '休' && sh0 !== '休') s1[key] = sh0;
     }
     
-    // 2. 对班组: 一早一晚
+    // 对班组: 一早一晚 (必须适用)
     for(const pair of RULES.oppositePairs){
       const s0 = schedules.find(x => x.name === pair[0]);
       const s1 = schedules.find(x => x.name === pair[1]);
@@ -749,39 +751,9 @@ function autoFix(){
       }
     }
     
-    // 3. 平衡组: 组内早晚平衡
-    for(const team of RULES.balanceTeams){
-      const members = team.map(n => schedules.find(x => x.name === n)).filter(Boolean);
-      const shifts = members.map(s => s ? (s[key]||'') : '');
-      const withRest = shifts.filter(s => s === '休');
-      
-      // 不能全部休息
-      if(withRest.length === members.length){
-        for(let i=0;i<Math.ceil(members.length/2);i++){
-          if(members[i][key] === '休') members[i][key] = '早';
-        }
-      }
-      
-      // 早晚平衡
-      const workingMembers = members.filter(s => s[key] !== '休' && s[key] !== '');
-      const cur早 = workingMembers.filter(s => s[key] === '早').length;
-      const cur晚 = workingMembers.filter(s => s[key] === '晚').length;
-      
-      if(workingMembers.length >= 2 && Math.abs(cur早 - cur晚) > 1){
-        if(cur早 > cur晚){
-          const toSwap = workingMembers.filter(s => s[key] === '早');
-          const need = Math.min(toSwap.length, Math.floor((cur早 - Math.round(workingMembers.length/2))));
-          for(let i=0;i<need;i++) toSwap[i][key] = '晚';
-        } else {
-          const toSwap = workingMembers.filter(s => s[key] === '晚');
-          const need = Math.min(toSwap.length, Math.floor((cur晚 - Math.round(workingMembers.length/2))));
-          for(let i=0;i<need;i++) toSwap[i][key] = '早';
-        }
-      }
-    }
   }
 
-  // ---- Phase 1: Fix Mon-Thu to have exactly 1休 (no 全, 全只在周六) ----
+  // ---- Phase 2: Fix Mon-Thu to have exactly 1休 (no 全, 全只在周六) ----
   for(let d=0;d<4;d++){
     const key=DAY_KEYS[d];
     let 休People=[], 早People=[], 晚People=[];
@@ -841,7 +813,7 @@ function autoFix(){
     }
   }
   
-  // ---- Phase 2: Fix each person - exactly 1休 (Mon-Thu only), 3早2晚1休1全 ----
+  // ---- Phase 3: Fix each person - exactly 1休 (Mon-Thu only), 3早2晚1休1全 ----
   for(const s of schedules){
     let 休Days=[], 早Days=[], 晚Days=[];
     for(let d=0;d<7;d++){
@@ -895,6 +867,39 @@ function autoFix(){
           s[DAY_KEYS[w.d]] = '早'; 晚c--; 早c++;
         }
         if(早c===3 && 晚c===2) break;
+      }
+    }
+  }
+  
+  // ---- Phase 4: 平衡组 (组内早晚均衡 — 最低优先级) ----
+  for(let d=0;d<7;d++){
+    if(d === 5) continue;
+    const key=DAY_KEYS[d];
+    for(const team of RULES.balanceTeams){
+      const members = team.map(n => schedules.find(x => x.name === n)).filter(Boolean);
+      if(members.length < 2) continue;
+      const shifts = members.map(s => s ? (s[key]||'') : '');
+      const withRest = shifts.filter(s => s === '休');
+      // 不能全部休息
+      if(withRest.length === members.length){
+        for(let i=0;i<Math.ceil(members.length/2);i++){
+          if(members[i][key] === '休') members[i][key] = '早';
+        }
+      }
+      // 早晚平衡
+      const workingMembers = members.filter(s => s[key] !== '休' && s[key] !== '');
+      const cur早 = workingMembers.filter(s => s[key] === '早').length;
+      const cur晚 = workingMembers.filter(s => s[key] === '晚').length;
+      if(workingMembers.length >= 2 && Math.abs(cur早 - cur晚) > 1){
+        if(cur早 > cur晚){
+          const toSwap = workingMembers.filter(s => s[key] === '早');
+          const need = Math.min(toSwap.length, Math.floor((cur早 - Math.round(workingMembers.length/2))));
+          for(let i=0;i<need;i++) toSwap[i][key] = '晚';
+        } else {
+          const toSwap = workingMembers.filter(s => s[key] === '晚');
+          const need = Math.min(toSwap.length, Math.floor((cur晚 - Math.round(workingMembers.length/2))));
+          for(let i=0;i<need;i++) toSwap[i][key] = '早';
+        }
       }
     }
   }
