@@ -98,6 +98,12 @@ const DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
 const DAY_KEYS = ['mon_shift','tue_shift','wed_shift','thu_shift','fri_shift','sat_shift','sun_shift'];
 const SHIFTS = ['早','晚','休','全'];
 const SHIFT_COLORS = {早:'#0050b3',晚:'#d46b08',休:'#8c8c8c',全:'#237804'};
+// 对班制分组 (按staff name)
+const STAFF_GROUPS = [
+  { type:'pair', members:['陈磊','刘晓庆'], desc:'陈磊&刘晓庆对班' },
+  { type:'team', members:['胡倩','江凤','陈梅芳','郭友琴'], desc:'胡倩组对班' },
+  { type:'team', members:['刘静','倪艺','杨亚男'], desc:'刘静组对班' },
+];
 
 let state = { staff:[], schedules:[], publishedWeeks:[], isAdmin:false, tab:'view', editingWeekStart:null, searchName:'', scheduleSnapshot:[] };
 
@@ -617,6 +623,37 @@ function runSelfCheck(){
     }
   }
   
+  // 4. 对班制检查
+  for(let d=0;d<7;d++){
+    if(d === 5) continue; // 周六全员全
+    const key=DAY_KEYS[d];
+    for(const grp of STAFF_GROUPS){
+      const memberShifts = grp.members.map(n => {
+        const s = schedules.find(x => x.name === n);
+        return s ? (s[key]||'') : '';
+      });
+      if(grp.type === 'pair'){
+        // 一早一晚，不得同时休息
+        if(memberShifts[0] === '休' && memberShifts[1] === '休'){
+          issues.push(`<strong>${DAYS[d]}</strong>: ${grp.members[0]}和${grp.members[1]}同时休息`);
+        }
+        if(memberShifts[0] === memberShifts[1] && memberShifts[0] !== '休'){
+          issues.push(`<strong>${DAYS[d]}</strong>: ${grp.members[0]}和${grp.members[1]}同为${memberShifts[0]}，应一早一晚`);
+        }
+      } else {
+        // 组内早晚平衡，不得同时休息
+        const all休 = memberShifts.every(s => s === '休');
+        if(all休) issues.push(`<strong>${DAYS[d]}</strong>: ${grp.desc}同时休息`);
+        const 早Count = memberShifts.filter(s => s==='早').length;
+        const 晚Count = memberShifts.filter(s => s==='晚').length;
+        const working = 早Count + 晚Count;
+        if(working > 0 && Math.abs(早Count-晚Count) > 1){
+          issues.push(`<strong>${DAYS[d]}</strong>: ${grp.desc}早${早Count}晚${晚Count}不均衡`);
+        }
+      }
+    }
+  }
+  
   // Render panel
   if(issues.length === 0){
     panel.innerHTML='<div style="padding:10px 14px;background:#f6ffed;border:1px solid #b7eb8f;border-radius:8px;font-size:13px;color:#389e0d">✅ 排班检查通过，分布合理</div>';
@@ -648,6 +685,62 @@ function autoFix(){
     if(s[DAY_KEYS[6]] === '休') s[DAY_KEYS[6]] = '早'; // 周日不排休
     if(s[DAY_KEYS[4]] === '全') s[DAY_KEYS[4]] = '早'; // 全只在周六
     if(s[DAY_KEYS[6]] === '全') s[DAY_KEYS[6]] = '早';
+  }
+
+  // ---- Phase 0: 对班制强制执行 (覆写手动变更) ----
+  for(let d=0;d<7;d++){
+    if(d === 5) continue; // 周六全员全跳过
+    const key=DAY_KEYS[d];
+    for(const grp of STAFF_GROUPS){
+      const getMembers = () => grp.members.map(n => schedules.find(x => x.name === n));
+      const members = getMembers();
+      const shifts = members.map(s => s ? (s[key]||'') : '');
+
+      if(grp.type === 'pair'){
+        // 陈磊&刘晓庆: 一早一晚
+        if(shifts[0] === '休' && shifts[1] === '休'){
+          // 不能同时休息，把一人改早
+          members[1][key] = '早';
+        }
+        if(shifts[0] !== '休' && shifts[1] !== '休' && shifts[0] === shifts[1]){
+          // 同为早或晚，强制调转一人
+          members[1][key] = shifts[0] === '早' ? '晚' : '早';
+        }
+      } else {
+        // 组内平衡: 不能在所有人都同班次 (全属要平衡)
+        const withRest = shifts.filter(s => s === '休');
+        const 早上 = shifts.filter(s => s === '早').length;
+        const 晚上 = shifts.filter(s => s === '晚').length;
+        const working = 早上 + 晚上;
+
+        // 不能全部休息
+        if(withRest.length === members.length){
+          // 把一半人改早
+          for(let i=0;i<Math.ceil(members.length/2);i++){
+            if(members[i][key] === '休') members[i][key] = '早';
+          }
+        }
+
+        // 早晚平衡 (仅对上班的人)
+        const workingMembers = members.filter(s => s[key] !== '休' && s[key] !== '');
+        const cur早 = workingMembers.filter(s => s[key] === '早').length;
+        const cur晚 = workingMembers.filter(s => s[key] === '晚').length;
+        const ideal = Math.round(workingMembers.length / 2);
+
+        if(workingMembers.length >= 2 && Math.abs(cur早 - cur晚) > 1){
+          // 不平衡，调整到均衡
+          if(cur早 > cur晚){
+            const toSwap = workingMembers.filter(s => s[key] === '早');
+            const need = Math.min(toSwap.length, Math.floor((cur早 - ideal)));
+            for(let i=0;i<need;i++) toSwap[i][key] = '晚';
+          } else {
+            const toSwap = workingMembers.filter(s => s[key] === '晚');
+            const need = Math.min(toSwap.length, Math.floor((cur晚 - ideal)));
+            for(let i=0;i<need;i++) toSwap[i][key] = '早';
+          }
+        }
+      }
+    }
   }
 
   // ---- Phase 1: Fix Mon-Thu to have exactly 1休 (no 全, 全只在周六) ----

@@ -163,7 +163,7 @@ def auto_schedule():
         ['晚','早','休','早','晚','全','晚'],  # 江凤
         ['早','晚','休','晚','早','全','晚'],  # 陈梅芳
         ['休','晚','早','晚','早','全','早'],  # 郭友琴
-        ['晚','早','晚','晚','早','全','早'],  # 刘静 (周日休→周一早,周日早)
+        ['晚','早','晚','晚','早','全','早'],  # 刘静
         ['早','晚','早','休','晚','全','早'],  # 倪艺
         ['休','早','晚','早','晚','全','晚'],  # 杨亚男
     ]
@@ -173,7 +173,6 @@ def auto_schedule():
         if i < len(TEMPLATE):
             row = list(TEMPLATE[i])
         else:
-            # For new staff beyond template, assign 休/全/早/晚 balanced
             shifts = ['' for _ in range(7)]
             shifts[i % 7] = '休'
             shifts[(i+3) % 7] = '全'
@@ -181,11 +180,44 @@ def auto_schedule():
                 if shifts[d] == '':
                     shifts[d] = '早' if d % 2 == 0 else '晚'
             row = shifts
-        # 原则：周五周六周日全员不能休息, 周六全员全班
-        row[4] = '早' if row[4] in ('休','全') else row[4]  # 周五不排休/全
+        row[4] = '早' if row[4] in ('休','全') else row[4]
         row[5] = '全'
-        row[6] = '早' if row[6] in ('休','全') else row[6]  # 周日不排休/全
+        row[6] = '早' if row[6] in ('休','全') else row[6]
         result.append(row)
+
+    # 对班制规则强制执行 (覆写模板)
+    staff_names = [st['name'] for st in staff_list]
+    PAIRS = [('陈磊','刘晓庆')]
+    TEAMS = [['胡倩','江凤','陈梅芳','郭友琴'], ['刘静','倪艺','杨亚男']]
+    for d in range(7):
+        if d == 5: continue  # 周六全员全跳过
+        # Pair: 陈磊&刘晓庆 一早一晚
+        for a, b in PAIRS:
+            ia = staff_names.index(a) if a in staff_names else -1
+            ib = staff_names.index(b) if b in staff_names else -1
+            if ia >= 0 and ib >= 0:
+                if result[ia][d] == '休' and result[ib][d] == '休':
+                    result[ib][d] = '早'
+                if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] == result[ib][d]:
+                    result[ib][d] = '晚' if result[ia][d] == '早' else '早'
+        # Teams: 内部早晚平衡
+        for team in TEAMS:
+            idxs = [staff_names.index(n) for n in team if n in staff_names]
+            if len(idxs) < 2: continue
+            cur_早 = sum(1 for i in idxs if result[i][d] == '早')
+            cur_晚 = sum(1 for i in idxs if result[i][d] == '晚')
+            working_cnt = cur_早 + cur_晚
+            if working_cnt >= 2 and abs(cur_早 - cur_晚) > 1:
+                if cur_早 > cur_晚:
+                    for i in idxs:
+                        if result[i][d] == '早' and cur_早 - cur_晚 > 1:
+                            result[i][d] = '晚'
+                            cur_早 -= 1; cur_晚 += 1
+                else:
+                    for i in idxs:
+                        if result[i][d] == '晚' and cur_晚 - cur_早 > 1:
+                            result[i][d] = '早'
+                            cur_晚 -= 1; cur_早 += 1
 
     # save to db
     db.execute("DELETE FROM schedules WHERE week_start=?", (ws,))
