@@ -332,30 +332,36 @@ def export_excel():
     cell.font = font_title
     cell.alignment = align_center
 
-    # Row 2: Header (品牌, 姓名, dates)
-    headers = ['品牌', '姓名']
+    # Row 2-3: Header with merged cells (like original Excel)
+    ws.merge_cells('A2:A3')
+    ws.merge_cells('B2:B3')
+    cell_a2 = ws.cell(row=2, column=1, value='品牌')
+    cell_a2.font = font_header
+    cell_a2.alignment = align_center
+    cell_a2.border = thin_border
+    cell_b2 = ws.cell(row=2, column=2, value='姓名')
+    cell_b2.font = font_header
+    cell_b2.alignment = align_center
+    cell_b2.border = thin_border
+    # Border for A3, B3 (merged cells need border on each row)
+    ws.cell(row=3, column=1).border = thin_border
+    ws.cell(row=3, column=2).border = thin_border
+
+    # Date serial numbers in row 2 (columns C-I) like original Excel
+    day_names = ['周一','周二','周三','周四','周五','周六','周日']
+    excel_epoch = datetime(1899, 12, 30)
     for i in range(7):
         dt = d + timedelta(days=i)
-        headers.append(dt)  # Store as date object for serial number
-    for col_idx, val in enumerate(headers, 1):
-        cell = ws.cell(row=2, column=col_idx, value=val)
-        if col_idx <= 2:
-            cell.font = font_header
-        else:
-            cell.font = font_date
-            cell.number_format = 'D/M'  # Format as date like the original
-        cell.alignment = align_center
-        cell.border = thin_border
+        serial = (dt - excel_epoch).days
+        cell_date = ws.cell(row=2, column=i+3, value=serial)
+        cell_date.font = font_date
+        cell_date.alignment = align_center
+        cell_date.border = thin_border
 
-    # Row 3: Days of week
-    day_names = ['周一','周二','周三','周四','周五','周六','周日']
-    ws.cell(row=3, column=1, value='').border = thin_border
-    ws.cell(row=3, column=2, value='').border = thin_border
-    for i, dn in enumerate(day_names):
-        cell = ws.cell(row=3, column=i+3, value=dn)
-        cell.font = font_date
-        cell.alignment = align_center
-        cell.border = thin_border
+        cell_day = ws.cell(row=3, column=i+3, value=day_names[i])
+        cell_day.font = font_date
+        cell_day.alignment = align_center
+        cell_day.border = thin_border
 
     # Row 4+: Data
     for idx, r in enumerate(rows):
@@ -416,4 +422,4 @@ def static_files(path):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=False)

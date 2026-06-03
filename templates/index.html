@@ -316,16 +316,14 @@ function fallbackCopy(url, msg){
 }
 
 function saveViewScreenshot(){
-  const grid = document.querySelector('.schedule-grid');
-  if(!grid){toast('请先加载排班数据');return}
+  const card = document.querySelector('.schedule-grid').parentElement;
+  if(!card){toast('请先加载排班数据');return}
   const s = document.createElement('script');
   s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
   s.onload = async () => {
     try {
-      const canvas = await html2canvas(document.querySelector('.schedule-grid').parentElement, {
-        backgroundColor:'#fff', scale:2, useCORS:true,
-        width: document.querySelector('.schedule-grid').scrollWidth + 32,
-        height: document.querySelector('.schedule-grid').parentElement.offsetHeight
+      const canvas = await html2canvas(card, {
+        backgroundColor:'#fff', scale:2, useCORS:true
       });
       const link = document.createElement('a');
       link.download = '排班表_' + (state.editingWeekStart||'') + '.png';
