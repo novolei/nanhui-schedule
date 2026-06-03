@@ -163,12 +163,12 @@ function renderView(){
   h+='</div>';
   
   h+='<div class="schedule-grid"><table>';
-  h+='<tr><th style="min-width:70px">姓名</th>';
+  h+='<tr><th style="min-width:60px">品牌</th><th style="min-width:60px">姓名</th>';
   for(let i=0;i<7;i++) h+=`<th>${DAYS[i]}<br><span style="font-weight:400;font-size:11px;color:#999">${dates[i]}日</span></th>`;
   h+='</tr>';
   
   for(const s of state.schedules){
-    h+=`<tr><td class="name-col">${s.name}${s.brand?`<br><span style="font-size:11px;color:#999">${s.brand}</span>`:''}</td>`;
+    h+=`<tr><td class="name-col" style="font-size:12px;color:#666">${s.brand||'-'}</td><td class="name-col">${s.name}</td>`;
     for(let i=0;i<7;i++){
       const shift=s[DAY_KEYS[i]]||'';
       h+=`<td class="shift-${shift}">${shift||'-'}</td>`;

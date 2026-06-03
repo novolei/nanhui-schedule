@@ -233,47 +233,7 @@ def check_password():
     ok = hashlib.sha256(pwd.encode()).hexdigest() == PASSWORD_HASH
     return jsonify({'ok': ok})
 
-# ---- Share page (server-rendered with OG tags for WeChat) ----
-DAYS_CN = ['周一','周二','周三','周四','周五','周六','周日']
-DAY_KEYS = ['mon_shift','tue_shift','wed_shift','thu_shift','fri_shift','sat_shift','sun_shift']
-
-@app.route('/share/<name>')
-def share(name):
-    db = get_db()
-    # find staff
-    st = db.execute("SELECT * FROM staff WHERE name=? AND is_active=1", (name,)).fetchone()
-    if not st:
-        return '<h2 style="text-align:center;margin-top:100px;color:#999">未找到该员工</h2>', 404
-
-    # get latest published week
-    pub = db.execute("SELECT week_start FROM published_weeks ORDER BY week_start DESC LIMIT 1").fetchone()
-    if not pub:
-        return '<h2 style="text-align:center;margin-top:100px;color:#999">暂无已发布的排班</h2>', 404
-
-    ws = pub['week_start']
-    row = db.execute("SELECT * FROM schedules WHERE week_start=? AND staff_id=?", (ws, st['id'])).fetchone()
-    if not row:
-        return '<h2 style="text-align:center;margin-top:100px;color:#999">暂无排班数据</h2>', 404
-
-    d = datetime.strptime(ws, '%Y-%m-%d')
-    week_end = d + timedelta(days=6)
-    week_label = f'{d.month}月{d.day}日 - {week_end.month}月{week_end.day}日'
-
-    days = []
-    for i, label in enumerate(DAYS_CN):
-        dt = d + timedelta(days=i)
-        shift = row[DAY_KEYS[i]] or '-'
-        days.append({'label': label, 'date': f'{dt.month}/{dt.day}', 'shift': shift})
-
-    return render_template('share.html',
-        name=name,
-        week_label=week_label,
-        days=days,
-        base_url=request.url_root.rstrip('/'),
-        request_url=request.url)
-
-
-# ---- Full team share page ----
+# ---- Full team share page (must be before /share/<name>) ----
 @app.route('/share/full')
 def share_full():
     db = get_db()
@@ -295,6 +255,36 @@ def share_full():
         days_cn=DAYS_CN, dates=dates,
         base_url=request.url_root.rstrip('/'),
         request_url=request.url)
+
+
+# ---- Individual share page ----
+DAYS_CN = ['周一','周二','周三','周四','周五','周六','周日']
+DAY_KEYS = ['mon_shift','tue_shift','wed_shift','thu_shift','fri_shift','sat_shift','sun_shift']
+
+@app.route('/share/<name>')
+def share(name):
+    db = get_db()
+    st = db.execute("SELECT * FROM staff WHERE name=? AND is_active=1", (name,)).fetchone()
+    if not st:
+        return '<h2 style="text-align:center;margin-top:100px;color:#999">未找到该员工</h2>', 404
+    pub = db.execute("SELECT week_start FROM published_weeks ORDER BY week_start DESC LIMIT 1").fetchone()
+    if not pub:
+        return '<h2 style="text-align:center;margin-top:100px;color:#999">暂无已发布的排班</h2>', 404
+    ws = pub['week_start']
+    row = db.execute("SELECT * FROM schedules WHERE week_start=? AND staff_id=?", (ws, st['id'])).fetchone()
+    if not row:
+        return '<h2 style="text-align:center;margin-top:100px;color:#999">暂无排班数据</h2>', 404
+    d = datetime.strptime(ws, '%Y-%m-%d')
+    week_end = d + timedelta(days=6)
+    week_label = f'{d.month}月{d.day}日 - {week_end.month}月{week_end.day}日'
+    days = []
+    for i, label in enumerate(DAYS_CN):
+        dt = d + timedelta(days=i)
+        shift = row[DAY_KEYS[i]] or '-'
+        days.append({'label': label, 'date': f'{dt.month}/{dt.day}', 'shift': shift})
+    return render_template('share.html',
+        name=name, week_label=week_label, days=days,
+        base_url=request.url_root.rstrip('/'), request_url=request.url)
 
 
 # ---- Excel export ----
@@ -368,21 +358,18 @@ def export_excel():
         cell.border = thin_border
 
     # Row 4+: Data
-    # Determine brand/role group fills
-    prev_role = None
     for idx, r in enumerate(rows):
         row_num = 4 + idx
         is_odd = idx % 2 == 1
         fill = fill_gray if is_odd else fill_white
 
-        if r['role'] != prev_role and r['role']:
-            ws.cell(row=row_num, column=1, value=r['role'])
-            prev_role = r['role']
-
-        ws.cell(row=row_num, column=1).border = thin_border
-        ws.cell(row=row_num, column=1).fill = fill
-        ws.cell(row=row_num, column=1).font = font_data
-        ws.cell(row=row_num, column=1).alignment = align_center
+        # Column A: 品牌 — show brand if exists, otherwise show role
+        brand_val = r['brand'] or r['role'] or ''
+        cell_a = ws.cell(row=row_num, column=1, value=brand_val)
+        cell_a.font = font_data
+        cell_a.alignment = align_center
+        cell_a.border = thin_border
+        cell_a.fill = fill
 
         ws.cell(row=row_num, column=2, value=r['name']).font = font_data_bold
         ws.cell(row=row_num, column=2).alignment = align_center
@@ -404,13 +391,13 @@ def export_excel():
         ws.column_dimensions[get_column_letter(i)].width = 8
 
     # Save to temp file
-    import tempfile
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
-    wb.save(tmp.name)
-    tmp.close()
+    import tempfile, io
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
 
     from flask import send_file
-    return send_file(tmp.name,
+    return send_file(output,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True,
         download_name=f'排班表_{ws_param}.xlsx')

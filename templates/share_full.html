@@ -40,12 +40,14 @@ td{padding:7px 4px;text-align:center;border-bottom:1px solid #f0f0f0}
 <div class="grid-wrap">
 <table>
 <tr>
+  <th style="text-align:left;padding-left:10px">品牌</th>
   <th style="text-align:left;padding-left:10px">姓名</th>
   {% for d in days_cn %}<th>{{ d }}</th>{% endfor %}
 </tr>
 {% for s in schedules %}
 <tr class="{{ 'even' if loop.index is even }}">
-  <td class="name-col">{{ s.name }}<br><span style="font-size:11px;color:#999">{{ s.brand }}</span></td>
+  <td class="brand-col">{{ s.brand or s.role }}</td>
+  <td class="name-col">{{ s.name }}</td>
   {% for shift in s.shifts %}<td class="shift-{{ shift }}">{{ shift }}</td>{% endfor %}
 </tr>
 {% endfor %}
