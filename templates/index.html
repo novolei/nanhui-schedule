@@ -80,9 +80,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
     <div class="sub" id="headerSub">加载中...</div>
   </div>
   <div class="tab-bar" id="tabBar" style="display:none">
-    <button class="active" data-tab="view">📅 排班表</button>
-    <button data-tab="my">👤 我的排班</button>
-    <button data-tab="admin">⚙️ 管理</button>
+    <button class="active" data-tab="view" onclick="switchTab('view')">📅 排班表</button>
+    <button data-tab="my" onclick="switchTab('my')">👤 我的排班</button>
+    <button data-tab="admin" onclick="switchTab('admin')">⚙️ 管理</button>
   </div>
   <div class="container" id="pageView"></div>
 </div>
@@ -121,6 +121,11 @@ async function api(method,path,body){
 async function loadStaff(){state.staff=await api('GET','/api/staff')}
 async function loadSchedules(ws){state.schedules=await api('GET',`/api/schedules?week_start=${ws}`)}
 async function loadPublished(){state.publishedWeeks=await api('GET','/api/publish')}
+
+function switchTab(tab){
+  state.tab=tab;
+  render();
+}
 
 // ----- render -----
 function render(){
