@@ -35,9 +35,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .shift-晚{background:#ffe7ba;color:#d46b08;font-weight:700;border-radius:4px}
 .shift-休{background:#f0f0f0;color:#8c8c8c;font-style:italic;border-radius:4px}
 .shift-全{background:#d9f7be;color:#237804;font-weight:700;border-radius:4px}
-.shift-select{cursor:pointer;min-width:28px;display:inline-block;padding:4px 8px;border-radius:6px;transition:all .15s}
+.shift-select{cursor:pointer;min-width:28px;display:inline-block;padding:4px 8px;border-radius:6px;transition:all .15s;position:relative}
 .shift-select:hover{opacity:.8;transform:scale(1.05)}
 .shift-select.selected{border:2px solid #4a90d9;border-radius:6px}
+.shift-select.changed::after{content:'•';position:absolute;top:-4px;right:-4px;font-size:16px;color:#ff4d4f;line-height:1;animation:pulse-dot 1s ease-in-out infinite}
+@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
+.shift-select.changed{box-shadow:0 0 0 2px #ff4d4f;border-radius:6px}
 .staff-list .staff-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f0f0}
 .staff-info{display:flex;align-items:center;gap:8px}
 .staff-name{font-weight:500}
@@ -96,7 +99,7 @@ const DAY_KEYS = ['mon_shift','tue_shift','wed_shift','thu_shift','fri_shift','s
 const SHIFTS = ['早','晚','休','全'];
 const SHIFT_COLORS = {早:'#0050b3',晚:'#d46b08',休:'#8c8c8c',全:'#237804'};
 
-let state = { staff:[], schedules:[], publishedWeeks:[], isAdmin:false, tab:'view', editingWeekStart:null, searchName:'' };
+let state = { staff:[], schedules:[], publishedWeeks:[], isAdmin:false, tab:'view', editingWeekStart:null, searchName:'', scheduleSnapshot:[] };
 
 // ----- utils -----
 function $(s){return document.querySelector(s)}
@@ -121,7 +124,15 @@ async function api(method,path,body){
 }
 
 async function loadStaff(){state.staff=await api('GET','/api/staff')}
-async function loadSchedules(ws){state.schedules=await api('GET',`/api/schedules?week_start=${ws}`)}
+async function loadSchedules(ws){
+  state.schedules=await api('GET',`/api/schedules?week_start=${ws}`);
+  // Store snapshot for change detection
+  state.scheduleSnapshot = state.schedules.map(s => ({
+    id: s.id,
+    mon_shift:s.mon_shift,tue_shift:s.tue_shift,wed_shift:s.wed_shift,
+    thu_shift:s.thu_shift,fri_shift:s.fri_shift,sat_shift:s.sat_shift,sun_shift:s.sun_shift
+  }));
+}
 async function loadPublished(){state.publishedWeeks=await api('GET','/api/publish')}
 
 function switchTab(tab){
@@ -423,13 +434,29 @@ function renderAdmin(){
     
     for(const s of state.schedules){
       h+=`<tr><td class="name-col">${s.name}</td>`;
+      const snap = state.scheduleSnapshot.find(x => x.id === s.id);
       for(let i=0;i<7;i++){
-        const shift=s[DAY_KEYS[i]]||'';
-        h+=`<td class="shift-${shift}"><span class="shift-select" onclick="cycleShift(${s.id},${i},this)">${shift||'-'}</span></td>`;
+        const key=DAY_KEYS[i];
+        const shift=s[key]||'';
+        const orig = snap ? (snap[key]||'') : '';
+        const changed = shift !== orig;
+        h+=`<td class="shift-${shift}"><span class="shift-select${changed ? ' changed' : ''}" data-key="${key}" data-sid="${s.id}" data-day="${i}" onclick="cycleShift(${s.id},${i},this)">${shift||'-'}</span></td>`;
       }
       h+='</tr>';
     }
     h+='</table></div>';
+    // Change summary
+    const changeCount = state.schedules.reduce((cnt, s) => {
+      const snap = state.scheduleSnapshot.find(x => x.id === s.id);
+      if(!snap) return cnt;
+      for(const k of DAY_KEYS){
+        if((s[k]||'') !== (snap[k]||'')){cnt++; break;}
+      }
+      return cnt;
+    }, 0);
+    if(changeCount > 0){
+      h+=`<div style="text-align:center;margin:8px 0;padding:6px 12px;background:#fff2f0;border:1px solid #ffccc7;border-radius:6px;font-size:13px;color:#cf1322">🔄 ${changeCount} 处待保存变更</div>`;
+    }
     h+=`<button class="btn btn-primary btn-block" style="margin-top:10px" onclick="saveEdits()">💾 保存修改</button>`;
     h+='</div>';
   }
@@ -499,6 +526,14 @@ function cycleShift(scheduleId, dayIdx, el){
   s[key]=next;
   el.textContent=next;
   el.className='shift-select shift-'+next;
+  
+  // Mark as changed if different from original
+  const snap = state.scheduleSnapshot.find(x => x.id === scheduleId);
+  if(snap && next !== (snap[key]||'')){
+    el.classList.add('changed');
+  } else {
+    el.classList.remove('changed');
+  }
 }
 
 async function saveEdits(){
@@ -510,7 +545,14 @@ async function saveEdits(){
     thu_shift:s.thu_shift,fri_shift:s.fri_shift,sat_shift:s.sat_shift,sun_shift:s.sun_shift
   }));
   await api('PUT','/api/schedules',{week_start:ws,schedules:items});
-  toast('已保存');
+  // Refresh snapshot so changed markers reset
+  state.scheduleSnapshot = state.schedules.map(s => ({
+    id: s.id,
+    mon_shift:s.mon_shift,tue_shift:s.tue_shift,wed_shift:s.wed_shift,
+    thu_shift:s.thu_shift,fri_shift:s.fri_shift,sat_shift:s.sat_shift,sun_shift:s.sun_shift
+  }));
+  render();
+  toast('✅ 已保存');
 }
 
 async function doAuto(){
