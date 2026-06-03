@@ -273,6 +273,149 @@ def share(name):
         request_url=request.url)
 
 
+# ---- Full team share page ----
+@app.route('/share/full')
+def share_full():
+    db = get_db()
+    pub = db.execute("SELECT week_start FROM published_weeks ORDER BY week_start DESC LIMIT 1").fetchone()
+    if not pub:
+        return '<h2 style="text-align:center;margin-top:100px;color:#999">暂无已发布的排班</h2>', 404
+    ws = pub['week_start']
+    rows = db.execute("SELECT s.*, st.name, st.brand, st.role FROM schedules s JOIN staff st ON s.staff_id=st.id WHERE s.week_start=? ORDER BY st.sort_order", (ws,)).fetchall()
+    d = datetime.strptime(ws, '%Y-%m-%d')
+    week_end = d + timedelta(days=6)
+    week_label = f'{d.month}月{d.day}日 - {week_end.month}月{week_end.day}日'
+    schedule_data = []
+    for r in rows:
+        shifts = [r[k] or '-' for k in DAY_KEYS]
+        schedule_data.append({'name': r['name'], 'brand': r['brand'] or '', 'role': r['role'] or '', 'shifts': shifts})
+    dates = [(d + timedelta(days=i)) for i in range(7)]
+    return render_template('share_full.html',
+        week_label=week_label, schedules=schedule_data,
+        days_cn=DAYS_CN, dates=dates,
+        base_url=request.url_root.rstrip('/'),
+        request_url=request.url)
+
+
+# ---- Excel export ----
+@app.route('/api/export/excel')
+def export_excel():
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    ws_param = request.args.get('week_start', '')
+    db = get_db()
+    if not ws_param:
+        pub = db.execute("SELECT week_start FROM published_weeks ORDER BY week_start DESC LIMIT 1").fetchone()
+        if not pub:
+            return jsonify({'error':'暂无排班数据'}), 404
+        ws_param = pub['week_start']
+
+    rows = db.execute("SELECT s.*, st.name, st.brand, st.role FROM schedules s JOIN staff st ON s.staff_id=st.id WHERE s.week_start=? ORDER BY st.sort_order", (ws_param,)).fetchall()
+    staff_list = db.execute("SELECT * FROM staff WHERE is_active=1 ORDER BY sort_order").fetchall()
+    d = datetime.strptime(ws_param, '%Y-%m-%d')
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Sheet1'
+
+    # Styles
+    font_title = Font(name='黑体', size=20)
+    font_header = Font(name='黑体', size=14)
+    font_date = Font(name='黑体', size=12)
+    font_data = Font(name='等线 Light', size=14)
+    font_data_bold = Font(name='等线 Light', size=14, bold=True)
+    align_center = Alignment(horizontal='center', vertical='center')
+    thin_border = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin')
+    )
+    fill_gray = PatternFill(start_color='FFD9D9D9', end_color='FFD9D9D9', fill_type='solid')
+    fill_white = PatternFill(start_color='FFFFFFFF', end_color='FFFFFFFF', fill_type='solid')
+
+    # Row 1: Title
+    title = f'南汇店小家电排班表（{d.month}.{d.day}-{(d+timedelta(days=6)).month}.{(d+timedelta(days=6)).day}）'
+    ws.merge_cells('A1:I1')
+    cell = ws['A1']
+    cell.value = title
+    cell.font = font_title
+    cell.alignment = align_center
+
+    # Row 2: Header (品牌, 姓名, dates)
+    headers = ['品牌', '姓名']
+    for i in range(7):
+        dt = d + timedelta(days=i)
+        headers.append(dt)  # Store as date object for serial number
+    for col_idx, val in enumerate(headers, 1):
+        cell = ws.cell(row=2, column=col_idx, value=val)
+        if col_idx <= 2:
+            cell.font = font_header
+        else:
+            cell.font = font_date
+            cell.number_format = 'D/M'  # Format as date like the original
+        cell.alignment = align_center
+        cell.border = thin_border
+
+    # Row 3: Days of week
+    day_names = ['周一','周二','周三','周四','周五','周六','周日']
+    ws.cell(row=3, column=1, value='').border = thin_border
+    ws.cell(row=3, column=2, value='').border = thin_border
+    for i, dn in enumerate(day_names):
+        cell = ws.cell(row=3, column=i+3, value=dn)
+        cell.font = font_date
+        cell.alignment = align_center
+        cell.border = thin_border
+
+    # Row 4+: Data
+    # Determine brand/role group fills
+    prev_role = None
+    for idx, r in enumerate(rows):
+        row_num = 4 + idx
+        is_odd = idx % 2 == 1
+        fill = fill_gray if is_odd else fill_white
+
+        if r['role'] != prev_role and r['role']:
+            ws.cell(row=row_num, column=1, value=r['role'])
+            prev_role = r['role']
+
+        ws.cell(row=row_num, column=1).border = thin_border
+        ws.cell(row=row_num, column=1).fill = fill
+        ws.cell(row=row_num, column=1).font = font_data
+        ws.cell(row=row_num, column=1).alignment = align_center
+
+        ws.cell(row=row_num, column=2, value=r['name']).font = font_data_bold
+        ws.cell(row=row_num, column=2).alignment = align_center
+        ws.cell(row=row_num, column=2).border = thin_border
+        ws.cell(row=row_num, column=2).fill = fill
+
+        for i in range(7):
+            shift = r[DAY_KEYS[i]] or '-'
+            cell = ws.cell(row=row_num, column=i+3, value=shift)
+            cell.font = font_data
+            cell.alignment = align_center
+            cell.border = thin_border
+            cell.fill = fill
+
+    # Column widths
+    ws.column_dimensions['A'].width = 12
+    ws.column_dimensions['B'].width = 10
+    for i in range(3, 10):
+        ws.column_dimensions[get_column_letter(i)].width = 8
+
+    # Save to temp file
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+    wb.save(tmp.name)
+    tmp.close()
+
+    from flask import send_file
+    return send_file(tmp.name,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'排班表_{ws_param}.xlsx')
+
+
 # ---- Serve frontend ----
 @app.route('/')
 def index():

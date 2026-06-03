@@ -176,6 +176,14 @@ function renderView(){
     h+='</tr>';
   }
   h+='</table></div></div>';
+
+  // Action buttons for view tab
+  const ws_enc = encodeURIComponent(ws);
+  h+=`<div class="card" style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn btn-primary" style="flex:1;min-width:100px" onclick="shareFullTeam()">📤 分享团队排班</button>
+    <button class="btn btn-success" style="flex:1;min-width:100px" onclick="saveViewScreenshot()">📷 截图排班表</button>
+    <button class="btn btn-warning" style="flex:1;min-width:100px" onclick="exportExcel()">📥 导出 Excel</button>
+  </div>`;
   return h;
 }
 
@@ -263,7 +271,7 @@ function renderMySchedule(st, ss, ws){
   // Share button
   const shareUrl = window.location.origin + '/share/' + encodeURIComponent(st.name);
   h+=`<div style="display:flex;gap:8px;margin-top:12px">
-    <button class="btn btn-primary" style="flex:1" onclick="copyShare('${encodeURIComponent(st.name)}')">📤 分享到微信</button>
+    <button class="btn btn-primary" style="flex:1" onclick="copyUrl(window.location.origin+'/share/'+encodeURIComponent(st.name),'✅ 排班链接已复制，发到微信群即可')">📤 分享到微信</button>
     <button class="btn btn-outline" onclick="saveScreenshot()">📷 截图保存</button>
   </div>`;
   return h;
@@ -285,18 +293,18 @@ async function loadWeek(){
   render();
 }
 
-function copyShare(name){
-  const url = window.location.origin + '/share/' + name;
-  if(navigator.clipboard){
-    navigator.clipboard.writeText(url).then(()=>{
-      toast('✅ 链接已复制，发到微信群即可');
-    }).catch(()=>{fallbackCopy(url);});
-  } else {
-    fallbackCopy(url);
-  }
+function shareFullTeam(){
+  const url = window.location.origin + '/share/full';
+  copyUrl(url, '✅ 团队排班链接已复制，发到微信群即可');
 }
 
-function fallbackCopy(url){
+function copyUrl(url, msg){
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(url).then(()=>{toast(msg);}).catch(()=>{fallbackCopy(url,msg);});
+  } else {fallbackCopy(url,msg);}
+}
+
+function fallbackCopy(url, msg){
   const ta = document.createElement('textarea');
   ta.value = url;
   ta.style.position = 'fixed'; ta.style.opacity = '0';
@@ -304,7 +312,37 @@ function fallbackCopy(url){
   ta.select();
   document.execCommand('copy');
   ta.remove();
-  toast('✅ 链接已复制，发到微信群即可');
+  toast(msg||'✅ 链接已复制');
+}
+
+function saveViewScreenshot(){
+  const grid = document.querySelector('.schedule-grid');
+  if(!grid){toast('请先加载排班数据');return}
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+  s.onload = async () => {
+    try {
+      const canvas = await html2canvas(document.querySelector('.schedule-grid').parentElement, {
+        backgroundColor:'#fff', scale:2, useCORS:true,
+        width: document.querySelector('.schedule-grid').scrollWidth + 32,
+        height: document.querySelector('.schedule-grid').parentElement.offsetHeight
+      });
+      const link = document.createElement('a');
+      link.download = '排班表_' + (state.editingWeekStart||'') + '.png';
+      link.href = canvas.toDataURL();
+      link.click();
+      toast('✅ 排班截图已保存');
+    } catch(e) {toast('截图失败: '+e.message);}
+  };
+  s.onerror = () => toast('加载截图库失败');
+  document.head.append(s);
+}
+
+function exportExcel(){
+  const ws = state.editingWeekStart;
+  if(!ws){toast('请先选择周');return}
+  window.open('/api/export/excel?week_start=' + ws, '_blank');
+  toast('📥 正在下载 Excel');
 }
 
 function saveScreenshot(){
