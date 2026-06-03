@@ -26,6 +26,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .btn-block{width:100%;margin-bottom:8px}
 .schedule-grid{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .schedule-grid table{width:100%;border-collapse:collapse;font-size:13px;min-width:600px}
+.rule-tag{display:inline-block;padding:4px 12px;border-radius:16px;font-size:13px;cursor:pointer;transition:all .15s;user-select:none;border:1px solid #d9d9d9}
+.rule-tag-avail{background:#fff;color:#333}
+.rule-tag-avail:hover{background:#e6f7ff;border-color:#1890ff}
+.rule-tag-used{background:#f0f0f0;color:#bbb;cursor:default}
+#rulesEditor .rule-tag{margin:2px}
 .schedule-grid th,.schedule-grid td{padding:8px 6px;text-align:center;border:1px solid #e8e8e8}
 .schedule-grid th{background:#f0f5ff;color:#333;font-weight:600;position:sticky;top:0}
 .schedule-grid td{transition:background .15s}
@@ -433,19 +438,9 @@ function renderAdmin(){
   }
   h+='</div></div>';
 
-  // Rules config card
-  const allStaff=state.staff.map(s=>s.name).join(',');
-  h+=`<div class="card"><h3>📋 排班规则</h3>
-  <div style="font-size:13px;line-height:1.8">
-    <label style="font-weight:600">对班组 (一早一晚):</label><br>
-    <input id="ruleOpposite" value="${RULES.oppositePairs.map(p=>p.join('+')).join(', ')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;margin:4px 0 8px 0;font-size:13px" placeholder="例: 陈磊+刘晓庆"><br>
-    <label style="font-weight:600">同班组 (同班次):</label><br>
-    <input id="ruleSame" value="${RULES.samePairs.map(p=>p.join('+')).join(', ')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;margin:4px 0 8px 0;font-size:13px" placeholder="例: 胡倩+江凤, 陈梅芳+郭友琴"><br>
-    <label style="font-weight:600">平衡组 (组内早晚均衡):</label><br>
-    <input id="ruleBalance" value="${RULES.balanceTeams.map(t=>t.join('+')).join(', ')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;margin:4px 0 8px 0;font-size:13px" placeholder="例: 胡倩+江凤+陈梅芳+郭友琴"><br>
-    <button class="btn btn-sm btn-primary" onclick="saveRules()">💾 保存规则</button>
-    <span style="color:#999;margin-left:8px">用 <b>+</b> 连接同组人员, <b>,</b> 分隔不同组</span>
-  </div></div>`;
+  // Rules config card - visual tag-based UI
+  h+=`<div class="card" id="rulesCard"><h3>📋 排班规则 <span style="font-size:12px;color:#999;font-weight:400">点击人员姓名配对分组</span></h3>
+  <div id="rulesEditor">${renderRulesEditor()}</div></div>`;
 
   // Editable schedule grid
   if(state.schedules.length>0){
@@ -914,18 +909,157 @@ function autoFix(){
   toast('🔧 已自动修复，请检查结果');
 }
 
-function saveRules(){
-  // Parse opposite pairs: "陈磊+刘晓庆, " -> [['陈磊','刘晓庆']]
-  const parsePairs = (str) => str.split(',').map(s => s.trim()).filter(Boolean).map(p => p.split('+').map(n => n.trim()).filter(Boolean));
+// ----- 排班规则编辑器 (可视化) -----
+const RULE_COLORS = ['#e6f7ff','#fff7e6','#f6ffed','#f0f5ff','#fff0f6','#f9f0ff','#e6fffb','#ffe7ba'];
+let ruleEditState = { type: null }; // which rule type is being edited
+
+function renderRulesEditor(){
+  const allNames = state.staff.map(s => s.name);
+  let h='';
   
-  const oppRaw = $('#ruleOpposite').value;
-  const sameRaw = $('#ruleSame').value;
-  const balRaw = $('#ruleBalance').value;
+  // Helper: render groups for a rule type
+  const renderGroups = (groups, typeKey, label, colorIdx) => {
+    // Get assigned names
+    const assigned = new Set();
+    for(const g of groups) for(const n of g) assigned.add(n);
+    const unassigned = allNames.filter(n => !assigned.has(n));
+    
+    h+=`<div style="margin-bottom:14px;border:1px solid #eee;border-radius:10px;padding:12px;background:#fafafa">
+      <div style="font-weight:600;font-size:14px;margin-bottom:8px;color:#333">${label}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:32px">`;
+    // Render existing groups
+    for(let gi=0; gi<groups.length; gi++){
+      const g = groups[gi];
+      const bg = RULE_COLORS[(colorIdx + gi) % RULE_COLORS.length];
+      h+=`<span style="display:inline-flex;align-items:center;gap:3px;background:${bg};border-radius:20px;padding:4px 10px;font-size:13px;border:1px solid #d9d9d9">`;
+      h+=g.join(' · ');
+      h+=`<span onclick="ruleRemoveGroup('${typeKey}',${gi})" style="cursor:pointer;opacity:.5;margin-left:2px;font-size:15px;line-height:1">&times;</span>`;
+      h+=`</span>`;
+    }
+    if(groups.length === 0) h+=`<span style="color:#ccc;font-size:13px;padding:2px 0">暂无分组，点击下方人员配对</span>`;
+    h+=`</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">`;
+    // Render unassigned staff as clickable tags
+    for(const n of unassigned){
+      h+=`<span class="rule-tag rule-tag-avail" onclick="ruleClickName('${typeKey}','${n}')">${n}</span>`;
+    }
+    // Render assigned staff as "in use" tags (can still click to start new group)
+    for(const g of groups){
+      for(const n of g){
+        h+=`<span class="rule-tag rule-tag-used" onclick="ruleClickName('${typeKey}','${n}')">${n}</span>`;
+      }
+    }
+    h+=`</div>
+    </div>`;
+  };
   
-  RULES.oppositePairs = parsePairs(oppRaw);
-  RULES.samePairs = parsePairs(sameRaw);
-  RULES.balanceTeams = parsePairs(balRaw);
+  renderGroups(RULES.oppositePairs, 'oppositePairs', '对班组 (一早一晚) — 点击2人配成一组', 0);
+  renderGroups(RULES.samePairs, 'samePairs', '同班组 (同班次) — 点击2人配成一组', 2);
+  renderGroups(RULES.balanceTeams, 'balanceTeams', '平衡组 (组内早晚均衡) — 点击多人组成一组', 4);
   
+  h+=`<button class="btn btn-sm btn-primary" onclick="saveRulesVisual()">💾 保存规则并重新检查</button>
+  <button class="btn btn-sm btn-outline" onclick="ruleCancelEdit()" style="margin-left:8px">↩ 取消</button>`;
+  
+  return h;
+}
+
+let rulePending = []; // pending names being grouped
+
+function ruleClickName(typeKey, name){
+  // Initialize pending if starting fresh for this rule type
+  if(ruleEditState.type !== typeKey){
+    ruleEditState.type = typeKey;
+    rulePending = [];
+  }
+  
+  // Check if already in pending
+  const idx = rulePending.indexOf(name);
+  if(idx >= 0){
+    rulePending.splice(idx, 1); // remove from pending
+    $('#rulesEditor').innerHTML = renderRulesEditor();
+    renderPendingBar();
+    return;
+  }
+  
+  // Check if already in an existing group
+  const groups = RULES[typeKey];
+  for(let gi=0; gi<groups.length; gi++){
+    const fi = groups[gi].indexOf(name);
+    if(fi >= 0){
+      // Remove from existing group
+      groups[gi].splice(fi, 1);
+      if(groups[gi].length === 0) groups.splice(gi, 1);
+      $('#rulesEditor').innerHTML = renderRulesEditor();
+      renderPendingBar();
+      return;
+    }
+  }
+  
+  // Add to pending
+  rulePending.push(name);
+  
+  // Check if group is complete
+  const maxSize = typeKey === 'balanceTeams' ? 99 : 2;
+  if(rulePending.length >= maxSize){
+    // Form a new group
+    groups.push([...rulePending]);
+    rulePending = [];
+    ruleEditState.type = null;
+  }
+  
+  $('#rulesEditor').innerHTML = renderRulesEditor();
+  renderPendingBar();
+}
+
+function renderPendingBar(){
+  // Show pending selection bar
+  const editor = document.getElementById('rulesEditor');
+  if(!editor) return;
+  if(rulePending.length === 0){
+    // Remove existing pending bar if any
+    const old = document.getElementById('rulePendingBar');
+    if(old) old.remove();
+    return;
+  }
+  let old = document.getElementById('rulePendingBar');
+  if(!old){
+    old = document.createElement('div');
+    old.id = 'rulePendingBar';
+    old.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:12px;font-size:14px;z-index:1000;box-shadow:0 4px 20px rgba(0,0,0,.3);display:flex;align-items:center;gap:10px';
+    document.body.append(old);
+  }
+  const typeLabel = ruleEditState.type === 'oppositePairs' ? '对班组' : ruleEditState.type === 'samePairs' ? '同班组' : '平衡组';
+  old.innerHTML = `${typeLabel} 已选: <strong>${rulePending.join(' · ')}</strong>
+    <span style="opacity:.7;margin-left:4px">${ruleEditState.type === 'balanceTeams' ? '继续点击添加更多人，或' : ''}还需${ruleEditState.type === 'balanceTeams' ? '1+' : '1'}人</span>
+    <span onclick="ruleCancelPending()" style="cursor:pointer;margin-left:8px;background:#666;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:14px">&times;</span>`;
+}
+
+function ruleCancelPending(){
+  rulePending = [];
+  ruleEditState.type = null;
+  const bar = document.getElementById('rulePendingBar');
+  if(bar) bar.remove();
+  $('#rulesEditor').innerHTML = renderRulesEditor();
+}
+
+function ruleRemoveGroup(typeKey, gi){
+  RULES[typeKey].splice(gi, 1);
+  $('#rulesEditor').innerHTML = renderRulesEditor();
+}
+
+function ruleCancelEdit(){
+  rulePending = [];
+  ruleEditState.type = null;
+  const bar = document.getElementById('rulePendingBar');
+  if(bar) bar.remove();
+  $('#rulesEditor').innerHTML = renderRulesEditor();
+}
+
+function saveRulesVisual(){
+  rulePending = [];
+  ruleEditState.type = null;
+  const bar = document.getElementById('rulePendingBar');
+  if(bar) bar.remove();
   toast('✅ 规则已保存');
   runSelfCheck();
 }
