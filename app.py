@@ -67,6 +67,10 @@ def init_db():
         db.executemany("INSERT INTO staff(name,brand,role,sort_order) VALUES(?,?,?,?)", names)
         db.commit()
 
+    # migration: 杨亚男 brand fix
+    db.execute("UPDATE staff SET brand='科沃斯' WHERE name='杨亚男' AND brand='云鲸'")
+    db.commit()
+
 with app.app_context():
     init_db()
 
