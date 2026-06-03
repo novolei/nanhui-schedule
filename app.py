@@ -200,10 +200,6 @@ def auto_schedule():
             if ia >= 0 and ib >= 0:
                 if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] != result[ib][d]:
                     result[ib][d] = result[ia][d]
-                if result[ia][d] == '休' and result[ib][d] != '休':
-                    result[ia][d] = result[ib][d]
-                if result[ib][d] == '休' and result[ia][d] != '休':
-                    result[ib][d] = result[ia][d]
         # 2. 对班组: 一早一晚 (必须适用)
         for a, b in OPPOSITE_PAIRS:
             ia = staff_names.index(a) if a in staff_names else -1
