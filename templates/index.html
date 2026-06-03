@@ -649,30 +649,7 @@ function runSelfCheck(){
   for(let d=0;d<7;d++){
     if(d === 5) continue; // 周六全员全
     const key=DAY_KEYS[d];
-    // 对班组检查: 一早一晚
-    for(const pair of RULES.oppositePairs){
-      const s0 = schedules.find(x => x.name === pair[0]);
-      const s1 = schedules.find(x => x.name === pair[1]);
-      if(!s0 || !s1) continue;
-      const sh0 = s0[key]||'', sh1 = s1[key]||'';
-      if(sh0 === '休' && sh1 === '休'){
-        issues.push(`<strong>${DAYS[d]}</strong>: ${pair[0]}和${pair[1]}同时休息`);
-      }
-      if(sh0 !== '休' && sh1 !== '休' && sh0 === sh1){
-        issues.push(`<strong>${DAYS[d]}</strong>: ${pair[0]}和${pair[1]}同为${sh0}，应一早一晚`);
-      }
-    }
-    // 同班组检查: 同班次
-    for(const pair of RULES.samePairs){
-      const s0 = schedules.find(x => x.name === pair[0]);
-      const s1 = schedules.find(x => x.name === pair[1]);
-      if(!s0 || !s1) continue;
-      const sh0 = s0[key]||'', sh1 = s1[key]||'';
-      if(sh0 !== sh1 && sh0 !== '休' && sh1 !== '休'){
-        issues.push(`<strong>${DAYS[d]}</strong>: ${pair[0]}(${sh0})和${pair[1]}(${sh1})应同班次`);
-      }
-    }
-    // 平衡组检查: 组内早晚平衡，不得同时休息
+    // 1. 平衡组检查: 组内早晚平衡，不得同时休息 (最高优先级)
     for(const team of RULES.balanceTeams){
       const memberShifts = team.map(n => {
         const s = schedules.find(x => x.name === n);
@@ -685,6 +662,29 @@ function runSelfCheck(){
       const working = 早Count + 晚Count;
       if(working > 0 && Math.abs(早Count-晚Count) > 1){
         issues.push(`<strong>${DAYS[d]}</strong>: ${team.join('/')}早${早Count}晚${晚Count}不均衡`);
+      }
+    }
+    // 2. 对班组检查: 一早一晚
+    for(const pair of RULES.oppositePairs){
+      const s0 = schedules.find(x => x.name === pair[0]);
+      const s1 = schedules.find(x => x.name === pair[1]);
+      if(!s0 || !s1) continue;
+      const sh0 = s0[key]||'', sh1 = s1[key]||'';
+      if(sh0 === '休' && sh1 === '休'){
+        issues.push(`<strong>${DAYS[d]}</strong>: ${pair[0]}和${pair[1]}同时休息`);
+      }
+      if(sh0 !== '休' && sh1 !== '休' && sh0 === sh1){
+        issues.push(`<strong>${DAYS[d]}</strong>: ${pair[0]}和${pair[1]}同为${sh0}，应一早一晚`);
+      }
+    }
+    // 3. 同班组检查: 同班次
+    for(const pair of RULES.samePairs){
+      const s0 = schedules.find(x => x.name === pair[0]);
+      const s1 = schedules.find(x => x.name === pair[1]);
+      if(!s0 || !s1) continue;
+      const sh0 = s0[key]||'', sh1 = s1[key]||'';
+      if(sh0 !== sh1 && sh0 !== '休' && sh1 !== '休'){
+        issues.push(`<strong>${DAYS[d]}</strong>: ${pair[0]}(${sh0})和${pair[1]}(${sh1})应同班次`);
       }
     }
   }
@@ -722,224 +722,190 @@ function autoFix(){
     if(s[DAY_KEYS[6]] === '全') s[DAY_KEYS[6]] = '早';
   }
 
-  // ---- Phase 1: 除陈磊刘晓庆外每日早晚平衡 (最高优先级) ----
-  for(let d=0;d<7;d++){
-    if(d === 5) continue;
-    const key=DAY_KEYS[d];
-    const nonPair = schedules.filter(s => s.name !== '陈磊' && s.name !== '刘晓庆');
-    let 早People = nonPair.filter(s => s[key] === '早');
-    let 晚People = nonPair.filter(s => s[key] === '晚');
-    while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
-      if(早People.length > 晚People.length){
-        早People.pop()[key] = '晚';
-      } else {
-        晚People.pop()[key] = '早';
+// ---- Phase 1: 平衡组 — 组内早晚平衡 (最高优先, 刘晓庆/陈磊替补) ----
+for(let d=0;d<7;d++){
+  if(d === 5) continue;
+  const key=DAY_KEYS[d];
+  for(const team of RULES.balanceTeams){
+    const members = team.map(n => schedules.find(x => x.name === n)).filter(Boolean);
+    if(members.length < 2) continue;
+    let 早People = members.filter(s => s[key] === '早');
+    let 晚People = members.filter(s => s[key] === '晚');
+    const working = 早People.length + 晚People.length;
+    // 组内平衡
+    const target早 = Math.floor(working / 2);
+    const target晚 = working - target早;
+    if(working >= 2 && Math.abs(早People.length - 晚People.length) > 1){
+      for(const s of members){
+        if(早People.length > target早 && s[key] === '早'){ s[key]='晚'; 早People=早People.filter(x=>x!==s); 晚People.push(s); }
+        else if(晚People.length > target晚 && s[key] === '晚'){ s[key]='早'; 晚People=晚People.filter(x=>x!==s); 早People.push(s); }
+      }
+    }
+    // 组内不够平衡时, 用刘晓庆/陈磊替补
+    if(working < members.length && Math.abs(早People.length - 晚People.length) > 1){
+      for(const filler of ['刘晓庆','陈磊']){
+        const fs = schedules.find(x => x.name === filler);
+        if(!fs || fs[key]==='休' || fs[key]==='全') continue;
+        if(早People.length > 晚People.length){ fs[key]='晚'; 晚People.push(fs); }
+        else if(晚People.length > 早People.length){ fs[key]='早'; 早People.push(fs); }
+        if(Math.abs(早People.length - 晚People.length) <= 1) break;
       }
     }
   }
+}
 
-  // ---- Phase 2: 对班组 (一早一晚) ----
-  for(let d=0;d<7;d++){
-    if(d === 5) continue;
-    const key=DAY_KEYS[d];
-    
-    // 对班组: 一早一晚
-    for(const pair of RULES.oppositePairs){
-      const s0 = schedules.find(x => x.name === pair[0]);
-      const s1 = schedules.find(x => x.name === pair[1]);
-      if(!s0 || !s1) continue;
-      const sh0 = s0[key]||'', sh1 = s1[key]||'';
-      if(sh0 === '休' && sh1 === '休'){
-        s1[key] = '早';
-      }
-      if(sh0 !== '休' && sh1 !== '休' && sh0 === sh1){
-        s1[key] = sh0 === '早' ? '晚' : '早';
-      }
-    }
+// ---- Phase 2: 除陈磊刘晓庆外每日早晚平衡 ----
+for(let d=0;d<7;d++){
+  if(d === 5) continue;
+  const key=DAY_KEYS[d];
+  const nonPair = schedules.filter(s => s.name !== '陈磊' && s.name !== '刘晓庆');
+  let 早People = nonPair.filter(s => s[key] === '早');
+  let 晚People = nonPair.filter(s => s[key] === '晚');
+  while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
+    if(早People.length > 晚People.length){ 早People.pop()[key] = '晚'; }
+    else { 晚People.pop()[key] = '早'; }
   }
+}
 
-  // ---- Phase 3: Fix Mon-Thu to have exactly 1休 (no 全, 全只在周六) ----
-  for(let d=0;d<4;d++){
-    const key=DAY_KEYS[d];
-    let 休People=[], 早People=[], 晚People=[];
-    for(const s of schedules){
-      const shift=s[key]||'';
-      if(shift==='休') 休People.push(s);
-      else if(shift==='全'){ s[key]='早'; 早People.push(s); } // 全→早
-      else if(shift==='早') 早People.push(s);
-      else if(shift==='晚') 晚People.push(s);
-    }
-    
-    // Fix excess 休 → move to 早/晚
-    while(休People.length > 1){
-      const p = 休People.pop();
-      p[key] = 早People.length <= 晚People.length ? '早' : '晚';
-      (p[key]==='早' ? 早People : 晚People).push(p);
-    }
-    // Fix missing 休
-    if(休People.length === 0){
-      const pool = 早People.length >= 晚People.length ? 早People : 晚People;
-      if(pool.length > 0){
-        const p = pool.pop();
-        p[key] = '休'; 休People.push(p);
-      }
-    }
-    // Balance 早/晚
-    早People=[]; 晚People=[];
-    for(const s of schedules){
-      const shift=s[key]||'';
-      if(shift==='早') 早People.push(s);
-      else if(shift==='晚') 晚People.push(s);
-    }
-    while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
-      if(早People.length > 晚People.length){
-        早People.pop()[key] = '晚';
-      } else {
-        晚People.pop()[key] = '早';
-      }
+// ---- Phase 3: 对班组 (一早一晚) ----
+for(let d=0;d<7;d++){
+  if(d === 5) continue;
+  const key=DAY_KEYS[d];
+  for(const pair of RULES.oppositePairs){
+    const s0 = schedules.find(x => x.name === pair[0]);
+    const s1 = schedules.find(x => x.name === pair[1]);
+    if(!s0 || !s1) continue;
+    const sh0 = s0[key]||'', sh1 = s1[key]||'';
+    if(sh0 === '休' && sh1 === '休'){ s1[key] = '早'; }
+    if(sh0 !== '休' && sh1 !== '休' && sh0 === sh1){
+      s1[key] = sh0 === '早' ? '晚' : '早';
     }
   }
-  
-  // Bonus: Fix Fri/Sun to be balanced 早/晚
-  for(const d of [4, 6]){
-    const key=DAY_KEYS[d];
-    let 早People=[], 晚People=[];
-    for(const s of schedules){
-      const shift=s[key]||'';
-      if(shift==='早') 早People.push(s);
-      else if(shift==='晚') 晚People.push(s);
-    }
-    while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
-      if(早People.length > 晚People.length){
-        早People.pop()[key] = '晚';
-      } else {
-        晚People.pop()[key] = '早';
-      }
-    }
-  }
-  
-  // ---- Phase 4: Fix each person — exactly 1休 (Mon-Thu only) ----
+}
+
+// ---- Phase 4: Fix Mon-Thu to have exactly 1休 ----
+for(let d=0;d<4;d++){
+  const key=DAY_KEYS[d];
+  let 休People=[], 早People=[], 晚People=[];
   for(const s of schedules){
-    let 休Days=[], 早Days=[], 晚Days=[];
-    for(let d=0;d<7;d++){
-      if(d >= 4) continue; // Fri/Sat/Sun: 休不可, 全只在周六
-      const shift=s[DAY_KEYS[d]]||'';
-      if(shift==='休') 休Days.push(d);
-      else if(shift==='全'){ s[DAY_KEYS[d]]='早'; 早Days.push(d); } // 非周六全→早
-      else if(shift==='早') 早Days.push(d);
-      else if(shift==='晚') 晚Days.push(d);
-    }
-    
-    // Fix excess 休
-    while(休Days.length > 1){
-      const day = 休Days.pop();
-      const dayShifts = schedules.map(x=>x[DAY_KEYS[day]]||'');
-      const 早C = dayShifts.filter(x=>x==='早').length;
-      const 晚C = dayShifts.filter(x=>x==='晚').length;
-      s[DAY_KEYS[day]] = 早C <= 晚C ? '早' : '晚';
-      (s[DAY_KEYS[day]]==='早' ? 早Days : 晚Days).push(day);
-    }
-    // Fix missing 休
-    if(休Days.length === 0){
-      const pool = [...早Days,...晚Days];
-      for(const day of pool){
-        const day休 = schedules.filter(x=>x[DAY_KEYS[day]]==='休').length;
-        if(day休 === 0){
-          s[DAY_KEYS[day]] = '休'; 休Days.push(day); break;
-        }
-      }
-      if(休Days.length === 0 && pool.length > 0){
-        s[DAY_KEYS[pool[0]]] = '休'; 休Days.push(pool[0]);
-      }
-    }
+    const shift=s[key]||'';
+    if(shift==='休') 休People.push(s);
+    else if(shift==='全'){ s[key]='早'; 早People.push(s); }
+    else if(shift==='早') 早People.push(s);
+    else if(shift==='晚') 晚People.push(s);
   }
-  
-  // ---- Phase 5: 平衡组 (组内早晚均衡) ----
-  for(let d=0;d<7;d++){
-    if(d === 5) continue;
-    const key=DAY_KEYS[d];
-    for(const team of RULES.balanceTeams){
-      const members = team.map(n => schedules.find(x => x.name === n)).filter(Boolean);
-      if(members.length < 2) continue;
-      const shifts = members.map(s => s ? (s[key]||'') : '');
-      const withRest = shifts.filter(s => s === '休');
-      // 不能全部休息
-      if(withRest.length === members.length){
-        for(let i=0;i<Math.ceil(members.length/2);i++){
-          if(members[i][key] === '休') members[i][key] = '早';
-        }
-      }
-      // 早晚平衡
-      const workingMembers = members.filter(s => s[key] !== '休' && s[key] !== '');
-      const cur早 = workingMembers.filter(s => s[key] === '早').length;
-      const cur晚 = workingMembers.filter(s => s[key] === '晚').length;
-      if(workingMembers.length >= 2 && Math.abs(cur早 - cur晚) > 1){
-        if(cur早 > cur晚){
-          const toSwap = workingMembers.filter(s => s[key] === '早');
-          const need = Math.min(toSwap.length, Math.floor((cur早 - Math.round(workingMembers.length/2))));
-          for(let i=0;i<need;i++) toSwap[i][key] = '晚';
-        } else {
-          const toSwap = workingMembers.filter(s => s[key] === '晚');
-          const need = Math.min(toSwap.length, Math.floor((cur晚 - Math.round(workingMembers.length/2))));
-          for(let i=0;i<need;i++) toSwap[i][key] = '早';
-        }
-      }
-    }
+  while(休People.length > 1){
+    const p = 休People.pop();
+    p[key] = 早People.length <= 晚People.length ? '早' : '晚';
+    (p[key]==='早' ? 早People : 晚People).push(p);
   }
-
-  // ---- Phase 6: 每人3早2晚 (与同班组同级) ----
+  if(休People.length === 0){
+    const pool = 早People.length >= 晚People.length ? 早People : 晚People;
+    if(pool.length > 0){ const p = pool.pop(); p[key] = '休'; 休People.push(p); }
+  }
+  早People=[]; 晚People=[];
   for(const s of schedules){
-    const workDays = [];
-    for(let d=0;d<7;d++){
-      if(d===5) continue;
-      const shift=s[DAY_KEYS[d]]||'';
-      if(shift!=='休' && shift!=='全' && shift!=='') workDays.push({d,shift});
-    }
-    let 早c = workDays.filter(x=>x.shift==='早').length;
-    let 晚c = workDays.filter(x=>x.shift==='晚').length;
-    const total = 早c+晚c;
-    if(total === 5 && (早c !== 3 || 晚c !== 2)){
-      for(const w of workDays){
-        if(早c > 3 && w.shift === '早'){
-          s[DAY_KEYS[w.d]] = '晚'; 早c--; 晚c++;
-        } else if(晚c > 2 && w.shift === '晚'){
-          s[DAY_KEYS[w.d]] = '早'; 晚c--; 早c++;
-        }
-        if(早c===3 && 晚c===2) break;
-      }
-    }
+    const shift=s[key]||'';
+    if(shift==='早') 早People.push(s);
+    else if(shift==='晚') 晚People.push(s);
   }
+  while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
+    if(早People.length > 晚People.length){ 早People.pop()[key] = '晚'; }
+    else { 晚People.pop()[key] = '早'; }
+  }
+}
 
-  // ---- Phase 7: 同班组 (同班次 — 与3早2晚同级) ----
-  for(let d=0;d<7;d++){
-    if(d === 5) continue;
-    const key=DAY_KEYS[d];
-    for(const pair of RULES.samePairs){
-      const s0 = schedules.find(x => x.name === pair[0]);
-      const s1 = schedules.find(x => x.name === pair[1]);
-      if(!s0 || !s1) continue;
-      const sh0 = s0[key]||'', sh1 = s1[key]||'';
-      if(sh0 !== '休' && sh1 !== '休' && sh0 !== sh1){
-        s1[key] = sh0;
-      }
-    }
+// Bonus: Fix Fri/Sun balance 早/晚
+for(const d of [4, 6]){
+  const key=DAY_KEYS[d];
+  let 早People=[], 晚People=[];
+  for(const s of schedules){
+    const shift=s[key]||'';
+    if(shift==='早') 早People.push(s);
+    else if(shift==='晚') 晚People.push(s);
   }
+  while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
+    if(早People.length > 晚People.length){ 早People.pop()[key] = '晚'; }
+    else { 晚People.pop()[key] = '早'; }
+  }
+}
 
-  // ---- Phase 8: 最终平衡 — 除陈磊刘晓庆外每日早晚平衡 (兜底) ----
+// ---- Phase 5: Fix each person — exactly 1休 (Mon-Thu only) ----
+for(const s of schedules){
+  let 休Days=[], 早Days=[], 晚Days=[];
   for(let d=0;d<7;d++){
-    if(d === 5) continue;
-    const key=DAY_KEYS[d];
-    const nonPair = schedules.filter(s => s.name !== '陈磊' && s.name !== '刘晓庆');
-    let 早People = nonPair.filter(s => s[key] === '早');
-    let 晚People = nonPair.filter(s => s[key] === '晚');
-    while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
-      if(早People.length > 晚People.length){
-        早People.pop()[key] = '晚';
-      } else {
-        晚People.pop()[key] = '早';
-      }
+    if(d >= 4) continue;
+    const shift=s[DAY_KEYS[d]]||'';
+    if(shift==='休') 休Days.push(d);
+    else if(shift==='全'){ s[DAY_KEYS[d]]='早'; 早Days.push(d); }
+    else if(shift==='早') 早Days.push(d);
+    else if(shift==='晚') 晚Days.push(d);
+  }
+  while(休Days.length > 1){
+    const day = 休Days.pop();
+    const dayShifts = schedules.map(x=>x[DAY_KEYS[day]]||'');
+    const 早C = dayShifts.filter(x=>x==='早').length;
+    const 晚C = dayShifts.filter(x=>x==='晚').length;
+    s[DAY_KEYS[day]] = 早C <= 晚C ? '早' : '晚';
+    (s[DAY_KEYS[day]]==='早' ? 早Days : 晚Days).push(day);
+  }
+  if(休Days.length === 0){
+    const pool = [...早Days,...晚Days];
+    for(const day of pool){
+      const day休 = schedules.filter(x=>x[DAY_KEYS[day]]==='休').length;
+      if(day休 === 0){ s[DAY_KEYS[day]] = '休'; 休Days.push(day); break; }
+    }
+    if(休Days.length === 0 && pool.length > 0){
+      s[DAY_KEYS[pool[0]]] = '休'; 休Days.push(pool[0]);
     }
   }
+}
+
+// ---- Phase 6: 每人3早2晚 ----
+for(const s of schedules){
+  const workDays = [];
+  for(let d=0;d<7;d++){
+    if(d===5) continue;
+    const shift=s[DAY_KEYS[d]]||'';
+    if(shift!=='休' && shift!=='全' && shift!=='') workDays.push({d,shift});
+  }
+  let 早c = workDays.filter(x=>x.shift==='早').length;
+  let 晚c = workDays.filter(x=>x.shift==='晚').length;
+  const total = 早c+晚c;
+  if(total === 5 && (早c !== 3 || 晚c !== 2)){
+    for(const w of workDays){
+      if(早c > 3 && w.shift === '早'){ s[DAY_KEYS[w.d]] = '晚'; 早c--; 晚c++; }
+      else if(晚c > 2 && w.shift === '晚'){ s[DAY_KEYS[w.d]] = '早'; 晚c--; 早c++; }
+      if(早c===3 && 晚c===2) break;
+    }
+  }
+}
+
+// ---- Phase 7: 同班组 (同班次) ----
+for(let d=0;d<7;d++){
+  if(d === 5) continue;
+  const key=DAY_KEYS[d];
+  for(const pair of RULES.samePairs){
+    const s0 = schedules.find(x => x.name === pair[0]);
+    const s1 = schedules.find(x => x.name === pair[1]);
+    if(!s0 || !s1) continue;
+    const sh0 = s0[key]||'', sh1 = s1[key]||'';
+    if(sh0 !== '休' && sh1 !== '休' && sh0 !== sh1){ s1[key] = sh0; }
+  }
+}
+
+// ---- Phase 8: 最终平衡 — 除陈磊刘晓庆外每日早晚平衡 (兜底) ----
+for(let d=0;d<7;d++){
+  if(d === 5) continue;
+  const key=DAY_KEYS[d];
+  const nonPair = schedules.filter(s => s.name !== '陈磊' && s.name !== '刘晓庆');
+  let 早People = nonPair.filter(s => s[key] === '早');
+  let 晚People = nonPair.filter(s => s[key] === '晚');
+  while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
+    if(早People.length > 晚People.length){ 早People.pop()[key] = '晚'; }
+    else { 晚People.pop()[key] = '早'; }
+  }
+}
 
   // Re-render table and self-check
   // Update snapshot so changed markers reflect auto-fix

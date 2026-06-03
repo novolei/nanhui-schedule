@@ -197,9 +197,45 @@ def auto_schedule():
     OPPOSITE_PAIRS = [('陈磊','刘晓庆')]
     SAME_PAIRS = [('胡倩','江凤'), ('陈梅芳','郭友琴'), ('刘晓庆','杨亚男')]
     TEAMS = [['胡倩','江凤','陈梅芳','郭友琴'], ['刘静','倪艺','杨亚男']]
+
+    # ---- 1. 平衡组: 组内早晚平衡 (最高优先级, 刘晓庆/陈磊替补) ----
     for d in range(7):
-        if d == 5: continue  # 周六全员全跳过
-        # 1. 除陈磊刘晓庆外: 每日早晚平衡 (最高优先级)
+        if d == 5: continue
+        for team in TEAMS:
+            idxs = [staff_names.index(n) for n in team if n in staff_names]
+            if len(idxs) < 2: continue
+            # 组内平衡
+            early_cnt = sum(1 for i in idxs if result[i][d] == '早')
+            late_cnt = sum(1 for i in idxs if result[i][d] == '晚')
+            working = early_cnt + late_cnt
+            # 目标: 尽可能 早=晚
+            target_early = working // 2
+            target_late = working - target_early
+            if working >= 2 and abs(early_cnt - late_cnt) > 1:
+                for i in idxs:
+                    if early_cnt > target_early and result[i][d] == '早':
+                        result[i][d] = '晚'
+                        early_cnt -= 1; late_cnt += 1
+                    elif late_cnt > target_late and result[i][d] == '晚':
+                        result[i][d] = '早'
+                        late_cnt -= 1; early_cnt += 1
+            # 如果组内人数不够平衡 (有人休), 用刘晓庆/陈磊替补
+            if working < len(idxs) and abs(early_cnt - late_cnt) > 1:
+                for filler in ('刘晓庆','陈磊'):
+                    if filler not in staff_names: continue
+                    fi = staff_names.index(filler)
+                    if result[fi][d] in ('休','全'): continue
+                    if early_cnt > late_cnt:
+                        result[fi][d] = '晚'
+                        late_cnt += 1
+                    elif late_cnt > early_cnt:
+                        result[fi][d] = '早'
+                        early_cnt += 1
+                    if abs(early_cnt - late_cnt) <= 1: break
+
+    for d in range(7):
+        if d == 5: continue
+        # 2. 除陈磊刘晓庆外: 每日早晚平衡
         non_pair_names = [n for n in staff_names if n not in ('陈磊','刘晓庆')]
         non_pair_idxs = [staff_names.index(n) for n in non_pair_names if n in staff_names]
         cur_早 = [i for i in non_pair_idxs if result[i][d] == '早']
@@ -213,7 +249,7 @@ def auto_schedule():
                 i = cur_晚.pop()
                 result[i][d] = '早'
                 cur_早.append(i)
-        # 2. 对班组: 一早一晚
+        # 3. 对班组: 一早一晚
         for a, b in OPPOSITE_PAIRS:
             ia = staff_names.index(a) if a in staff_names else -1
             ib = staff_names.index(b) if b in staff_names else -1
@@ -223,7 +259,7 @@ def auto_schedule():
                 if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] == result[ib][d]:
                     result[ib][d] = '晚' if result[ia][d] == '早' else '早'
 
-    # 3. 每人每周1休 (Mon-Thu恰1天休)
+    # 4. 每人每周1休 (Mon-Thu恰1天休)
     for row in result:
         mon_thu_休 = [d for d in range(4) if row[d] == '休']
         while len(mon_thu_休) > 1:
@@ -235,28 +271,7 @@ def auto_schedule():
                     row[d] = '休'
                     break
 
-    # 平衡组: 组内早晚均衡
-    for d in range(7):
-        if d == 5: continue
-        for team in TEAMS:
-            idxs = [staff_names.index(n) for n in team if n in staff_names]
-            if len(idxs) < 2: continue
-            cur_早 = sum(1 for i in idxs if result[i][d] == '早')
-            cur_晚 = sum(1 for i in idxs if result[i][d] == '晚')
-            working_cnt = cur_早 + cur_晚
-            if working_cnt >= 2 and abs(cur_早 - cur_晚) > 1:
-                if cur_早 > cur_晚:
-                    for i in idxs:
-                        if result[i][d] == '早' and cur_早 - cur_晚 > 1:
-                            result[i][d] = '晚'
-                            cur_早 -= 1; cur_晚 += 1
-                else:
-                    for i in idxs:
-                        if result[i][d] == '晚' and cur_晚 - cur_早 > 1:
-                            result[i][d] = '早'
-                            cur_晚 -= 1; cur_早 += 1
-
-    # 4a. 每人3早2晚 (与同班组同级)
+    # 5a. 每人3早2晚
     for row in result:
         days = [d for d in range(7) if row[d] not in ('休','全')]
         早c = sum(1 for d in days if row[d]=='早')
@@ -269,7 +284,7 @@ def auto_schedule():
                 row[d] = '早'
                 晚c -= 1; 早c += 1
 
-    # 4b. 同班组: 同班次 (与3早2晚同级)
+    # 5b. 同班组: 同班次
     for d in range(7):
         if d == 5: continue
         for a, b in SAME_PAIRS:
@@ -279,7 +294,7 @@ def auto_schedule():
                 if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] != result[ib][d]:
                     result[ib][d] = result[ia][d]
 
-    # 5. 最终平衡: 除陈磊刘晓庆外每日早晚平衡 (兜底)
+    # 6. 最终平衡: 除陈磊刘晓庆外每日早晚平衡 (兜底)
     for d in range(7):
         if d == 5: continue
         non_pair_names = [n for n in staff_names if n not in ('陈磊','刘晓庆')]
