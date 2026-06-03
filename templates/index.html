@@ -863,9 +863,17 @@ function autoFix(){
     }
   }
   
-  // Re-run self-check
+  // Re-render table and self-check
+  // Update snapshot so changed markers reflect auto-fix
+  state.scheduleSnapshot = state.schedules.map(s => ({
+    id: s.id,
+    mon_shift:s.mon_shift,tue_shift:s.tue_shift,wed_shift:s.wed_shift,
+    thu_shift:s.thu_shift,fri_shift:s.fri_shift,sat_shift:s.sat_shift,sun_shift:s.sun_shift
+  }));
+  render();
   runSelfCheck();
   toast('🔧 已自动修复，请检查结果');
+}
 }
 
 async function saveEdits(){
