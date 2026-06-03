@@ -717,7 +717,23 @@ function autoFix(){
     if(s[DAY_KEYS[6]] === '全') s[DAY_KEYS[6]] = '早';
   }
 
-  // ---- Phase 1: 对班组 (一早一晚 — 最高优先级) ----
+  // ---- Phase 1: 除陈磊刘晓庆外每日早晚平衡 (最高优先级) ----
+  for(let d=0;d<7;d++){
+    if(d === 5) continue;
+    const key=DAY_KEYS[d];
+    const nonPair = schedules.filter(s => s.name !== '陈磊' && s.name !== '刘晓庆');
+    let 早People = nonPair.filter(s => s[key] === '早');
+    let 晚People = nonPair.filter(s => s[key] === '晚');
+    while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
+      if(早People.length > 晚People.length){
+        早People.pop()[key] = '晚';
+      } else {
+        晚People.pop()[key] = '早';
+      }
+    }
+  }
+
+  // ---- Phase 2: 对班组 (一早一晚) ----
   for(let d=0;d<7;d++){
     if(d === 5) continue;
     const key=DAY_KEYS[d];
@@ -737,7 +753,7 @@ function autoFix(){
     }
   }
 
-  // ---- Phase 2: Fix Mon-Thu to have exactly 1休 (no 全, 全只在周六) ----
+  // ---- Phase 3: Fix Mon-Thu to have exactly 1休 (no 全, 全只在周六) ----
   for(let d=0;d<4;d++){
     const key=DAY_KEYS[d];
     let 休People=[], 早People=[], 晚People=[];
@@ -797,7 +813,7 @@ function autoFix(){
     }
   }
   
-  // ---- Phase 3: Fix each person - exactly 1休 (Mon-Thu only), 3早2晚1休1全 ----
+  // ---- Phase 4: Fix each person - exactly 1休 (Mon-Thu only), 3早2晚1休1全 ----
   for(const s of schedules){
     let 休Days=[], 早Days=[], 晚Days=[];
     for(let d=0;d<7;d++){
@@ -855,7 +871,7 @@ function autoFix(){
     }
   }
   
-  // ---- Phase 4: 平衡组 (组内早晚均衡 — 最低优先级) ----
+  // ---- Phase 5: 平衡组 (组内早晚均衡) ----
   for(let d=0;d<7;d++){
     if(d === 5) continue;
     const key=DAY_KEYS[d];
@@ -888,7 +904,7 @@ function autoFix(){
     }
   }
 
-  // ---- Phase 5: 同班组 (同班次 — 最低优先级) ----
+  // ---- Phase 6: 同班组 (同班次 — 最低优先级) ----
   for(let d=0;d<7;d++){
     if(d === 5) continue;
     const key=DAY_KEYS[d];

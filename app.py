@@ -193,7 +193,21 @@ def auto_schedule():
     TEAMS = [['胡倩','江凤','陈梅芳','郭友琴'], ['刘静','倪艺','杨亚男']]
     for d in range(7):
         if d == 5: continue  # 周六全员全跳过
-        # 1. 对班组: 一早一晚 (最高优先级)
+        # 1. 除陈磊刘晓庆外: 每日早晚平衡 (最高优先级)
+        non_pair_names = [n for n in staff_names if n not in ('陈磊','刘晓庆')]
+        non_pair_idxs = [staff_names.index(n) for n in non_pair_names if n in staff_names]
+        cur_早 = [i for i in non_pair_idxs if result[i][d] == '早']
+        cur_晚 = [i for i in non_pair_idxs if result[i][d] == '晚']
+        while abs(len(cur_早) - len(cur_晚)) > 1 and len(cur_早) + len(cur_晚) > 2:
+            if len(cur_早) > len(cur_晚):
+                i = cur_早.pop()
+                result[i][d] = '晚'
+                cur_晚.append(i)
+            else:
+                i = cur_晚.pop()
+                result[i][d] = '早'
+                cur_早.append(i)
+        # 2. 对班组: 一早一晚
         for a, b in OPPOSITE_PAIRS:
             ia = staff_names.index(a) if a in staff_names else -1
             ib = staff_names.index(b) if b in staff_names else -1
