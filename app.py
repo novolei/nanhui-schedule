@@ -170,11 +170,14 @@ def auto_schedule():
         ['早','晚','早','休','晚','全','早'],  # 倪艺
         ['休','早','晚','早','晚','全','晚'],  # 杨亚男
     ]
+    # 每次随机打乱模板分配, 确保每次一键排班结果不同
+    shuffled = list(TEMPLATE)
+    random.shuffle(shuffled)
 
     result = []
     for i, st in enumerate(staff_list):
-        if i < len(TEMPLATE):
-            row = list(TEMPLATE[i])
+        if i < len(shuffled):
+            row = list(shuffled[i])
         else:
             shifts = ['' for _ in range(7)]
             shifts[i % 7] = '休'
