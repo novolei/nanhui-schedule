@@ -273,6 +273,23 @@ def auto_schedule():
                 if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] != result[ib][d]:
                     result[ib][d] = result[ia][d]
 
+    # 5. 最终平衡: 除陈磊刘晓庆外每日早晚平衡 (兜底)
+    for d in range(7):
+        if d == 5: continue
+        non_pair_names = [n for n in staff_names if n not in ('陈磊','刘晓庆')]
+        non_pair_idxs = [staff_names.index(n) for n in non_pair_names if n in staff_names]
+        cur_早 = [i for i in non_pair_idxs if result[i][d] == '早']
+        cur_晚 = [i for i in non_pair_idxs if result[i][d] == '晚']
+        while abs(len(cur_早) - len(cur_晚)) > 1 and len(cur_早) + len(cur_晚) > 2:
+            if len(cur_早) > len(cur_晚):
+                i = cur_早.pop()
+                result[i][d] = '晚'
+                cur_晚.append(i)
+            else:
+                i = cur_晚.pop()
+                result[i][d] = '早'
+                cur_早.append(i)
+
     # save to db
     db.execute("DELETE FROM schedules WHERE week_start=?", (ws,))
     for i, st in enumerate(staff_list):

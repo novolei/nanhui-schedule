@@ -920,6 +920,22 @@ function autoFix(){
     }
   }
 
+  // ---- Phase 8: 最终平衡 — 除陈磊刘晓庆外每日早晚平衡 (兜底) ----
+  for(let d=0;d<7;d++){
+    if(d === 5) continue;
+    const key=DAY_KEYS[d];
+    const nonPair = schedules.filter(s => s.name !== '陈磊' && s.name !== '刘晓庆');
+    let 早People = nonPair.filter(s => s[key] === '早');
+    let 晚People = nonPair.filter(s => s[key] === '晚');
+    while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
+      if(早People.length > 晚People.length){
+        早People.pop()[key] = '晚';
+      } else {
+        晚People.pop()[key] = '早';
+      }
+    }
+  }
+
   // Re-render table and self-check
   // Update snapshot so changed markers reflect auto-fix
   state.scheduleSnapshot = state.schedules.map(s => ({
