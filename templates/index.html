@@ -553,8 +553,8 @@ function runSelfCheck(){
   
   // 1. Daily balance check: for each day, count 早/晚/休/全
   for(let d=0;d<7;d++){
-    // 原则：周六全员全班，跳过检查
-    if(d === 5) continue;
+    // 原则：周五周六周日全员不能休息，跳过检查
+    if(d >= 4) continue;
     const key=DAY_KEYS[d];
     const counts = {早:0,晚:0,休:0,全:0};
     let totalWorking = 0;
@@ -563,7 +563,7 @@ function runSelfCheck(){
       if(counts[shift]!==undefined) counts[shift]++;
       if(shift==='早'||shift==='晚') totalWorking++;
     }
-    // Ideal: 9人, 1休1全 → 7人分早/晚, 约3-4早, 3-4晚
+    // Ideal: 9人, 1休 → 8人分早/晚, 约4早4晚
     const idealShift = Math.round(totalWorking/2);
     const diffs = [];
     if(Math.abs(counts['早'] - counts['晚']) > 1 && totalWorking > 2){
@@ -572,12 +572,12 @@ function runSelfCheck(){
     if(counts['休'] !== 1){
       diffs.push(`休${counts['休']}人 (应为1人)`);
     }
-    if(counts['全'] !== 1){
-      diffs.push(`全${counts['全']}人 (应为1人)`);
+    if(counts['全'] > 0){
+      diffs.push(`全${counts['全']}人 (全仅周六)`);
     }
     if(diffs.length > 0){
       issues.push(`<strong>${DAYS[d]}</strong>: ${diffs.join('；')}`);
-      suggestions.push(`<strong>${DAYS[d]}</strong>建议调整至 早${idealShift}晚${idealShift}休1 (周六全员全)`);
+      suggestions.push(`<strong>${DAYS[d]}</strong>建议调整至 早${idealShift}晚${idealShift}休1 (周五六日不排休)`);
     }
   }
   
@@ -585,7 +585,7 @@ function runSelfCheck(){
   for(const s of schedules){
     let 早Count=0, 晚Count=0, 休Count=0, 全Count=0;
     for(let d=0;d<7;d++){
-      if(d === 5) continue; // 周六全员全，不计入个人平衡统计
+      if(d >= 4) continue; // 周五六日不排休，不计入个人平衡统计
       const shift=s[DAY_KEYS[d]]||'';
       if(shift==='早')早Count++;
       else if(shift==='晚')晚Count++;
@@ -593,18 +593,27 @@ function runSelfCheck(){
       else if(shift==='全')全Count++;
     }
     const personIssues = [];
-    // Check 早/晚 balance: weekly 早+晚 should be 5 (周六全 + 1休 + 5天早/晚)
+    // Check 早/晚 balance: Mon-Thu = 4天, 1休, 剩3天早/晚
     const totalShifts = 早Count+晚Count;
     if(休Count > 1) personIssues.push(`休${休Count}天 (建议1天)`);
     if(全Count > 0) personIssues.push(`非周六全${全Count}天 (全仅周六)`);
     if(Math.abs(早Count-晚Count) > 1 && totalShifts > 2){
       personIssues.push(`早${早Count}晚${晚Count} 早晚不均衡`);
     }
-    if(晚Count > 3) personIssues.push(`晚班${晚Count}天偏多`);
-    if(早Count > 4) personIssues.push(`早班${早Count}天偏多`);
+    if(晚Count > 2) personIssues.push(`晚班${晚Count}天偏多`);
+    if(早Count > 2) personIssues.push(`早班${早Count}天偏多`);
     if(personIssues.length > 0){
       issues.push(`<strong>${s.name}</strong>: ${personIssues.join('；')}`);
-      suggestions.push(`<strong>${s.name}</strong>建议: 早${Math.round(totalShifts/2)}晚${Math.floor(totalShifts/2)}休1 (周六全)`);
+      suggestions.push(`<strong>${s.name}</strong>建议: 早${Math.round(totalShifts/2)}晚${Math.floor(totalShifts/2)}休1 (周五六日全上班)`);
+    }
+  }
+  
+  // 3. Extra check: 周五周日不应有休/全
+  for(const s of schedules){
+    for(const d of [4, 6]){
+      const shift = s[DAY_KEYS[d]] || '';
+      if(shift === '休') issues.push(`<strong>${s.name}</strong>: ${DAYS[d]}不应排休`);
+      if(shift === '全') issues.push(`<strong>${s.name}</strong>: ${DAYS[d]}不应排全 (全仅周六)`);
     }
   }
   
@@ -632,66 +641,43 @@ function autoFix(){
   const schedules = state.schedules;
   if(!schedules || schedules.length === 0) return;
 
-  // 原则：周六全员全班
+  // 原则：周五周六周日全员不能休息, 周六全员全班
   for(const s of schedules){
-    s[DAY_KEYS[5]] = '全';
+    s[DAY_KEYS[5]] = '全';    // 周六全
+    if(s[DAY_KEYS[4]] === '休') s[DAY_KEYS[4]] = '早'; // 周五不排休
+    if(s[DAY_KEYS[6]] === '休') s[DAY_KEYS[6]] = '早'; // 周日不排休
+    if(s[DAY_KEYS[4]] === '全') s[DAY_KEYS[4]] = '早'; // 全只在周六
+    if(s[DAY_KEYS[6]] === '全') s[DAY_KEYS[6]] = '早';
   }
 
-  // ---- Phase 1: Fix each day to have exactly 1休 + 1全 (skip Saturday) ----
-  for(let d=0;d<7;d++){
-    if(d === 5) continue; // 周六全员全，跳过
+  // ---- Phase 1: Fix Mon-Thu to have exactly 1休 (no 全, 全只在周六) ----
+  for(let d=0;d<4;d++){
     const key=DAY_KEYS[d];
-    // Count current
-    let 休People=[], 全People=[], 早People=[], 晚People=[];
+    let 休People=[], 早People=[], 晚People=[];
     for(const s of schedules){
       const shift=s[key]||'';
       if(shift==='休') 休People.push(s);
-      else if(shift==='全') 全People.push(s);
+      else if(shift==='全'){ s[key]='早'; 早People.push(s); } // 全→早
       else if(shift==='早') 早People.push(s);
       else if(shift==='晚') 晚People.push(s);
     }
     
-    // Fix excess 休 → move to 早 or 晚 (whichever needs more)
+    // Fix excess 休 → move to 早/晚
     while(休People.length > 1){
       const p = 休People.pop();
       p[key] = 早People.length <= 晚People.length ? '早' : '晚';
       (p[key]==='早' ? 早People : 晚People).push(p);
     }
-    // Fix excess 全 → move to 早 or 晚
-    while(全People.length > 1){
-      const p = 全People.pop();
-      p[key] = 早People.length <= 晚People.length ? '早' : '晚';
-      (p[key]==='早' ? 早People : 晚People).push(p);
-    }
-    // Fix missing 休 → take from 早 or 晚 (whichever has more)
-    if(休People.length === 0 && 全People.length === 0){
-      // Need both 休 and 全
-      const pool = 早People.length >= 晚People.length ? 早People : 晚People;
-      const p1 = pool.pop();
-      p1[key] = '休'; 休People.push(p1);
-      const pool2 = 早People.length >= 晚People.length ? 早People : 晚People;
-      if(pool2.length > 0){
-        const p2 = pool2.pop();
-        p2[key] = '全'; 全People.push(p2);
-      }
-    } else if(休People.length === 0){
-      // Need 1 休
+    // Fix missing 休
+    if(休People.length === 0){
       const pool = 早People.length >= 晚People.length ? 早People : 晚People;
       if(pool.length > 0){
         const p = pool.pop();
         p[key] = '休'; 休People.push(p);
       }
     }
-    if(全People.length === 0){
-      const pool = 早People.length >= 晚People.length ? 早People : 晚People;
-      if(pool.length > 0){
-        const p = pool.pop();
-        p[key] = '全'; 全People.push(p);
-      }
-    }
-    
-    // Balance 早/晚 for remaining people
-    早People = []; 晚People = [];
+    // Balance 早/晚
+    早People=[]; 晚People=[];
     for(const s of schedules){
       const shift=s[key]||'';
       if(shift==='早') 早People.push(s);
@@ -699,23 +685,39 @@ function autoFix(){
     }
     while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
       if(早People.length > 晚People.length){
-        const p = 早People.pop();
-        p[key] = '晚'; 晚People.push(p);
+        早People.pop()[key] = '晚';
       } else {
-        const p = 晚People.pop();
-        p[key] = '早'; 早People.push(p);
+        晚People.pop()[key] = '早';
       }
     }
   }
   
-  // ---- Phase 2: Fix each person to have exactly 1休 + 1全 (周六固定全) ----
+  // Bonus: Fix Fri/Sun to be balanced 早/晚
+  for(const d of [4, 6]){
+    const key=DAY_KEYS[d];
+    let 早People=[], 晚People=[];
+    for(const s of schedules){
+      const shift=s[key]||'';
+      if(shift==='早') 早People.push(s);
+      else if(shift==='晚') 晚People.push(s);
+    }
+    while(Math.abs(早People.length - 晚People.length) > 1 && 早People.length + 晚People.length > 2){
+      if(早People.length > 晚People.length){
+        早People.pop()[key] = '晚';
+      } else {
+        晚People.pop()[key] = '早';
+      }
+    }
+  }
+  
+  // ---- Phase 2: Fix each person - exactly 1休 (Mon-Thu only), 全只在周六 ----
   for(const s of schedules){
-    let 休Days=[], 全Days=[], 早Days=[], 晚Days=[];
+    let 休Days=[], 早Days=[], 晚Days=[];
     for(let d=0;d<7;d++){
-      if(d === 5) continue; // 周六固定全，不参与调整
+      if(d >= 4) continue; // Fri/Sat/Sun: 休不可, 全只在周六
       const shift=s[DAY_KEYS[d]]||'';
       if(shift==='休') 休Days.push(d);
-      else if(shift==='全') 全Days.push(d);
+      else if(shift==='全'){ s[DAY_KEYS[d]]='早'; 早Days.push(d); } // 非周六全→早
       else if(shift==='早') 早Days.push(d);
       else if(shift==='晚') 晚Days.push(d);
     }
@@ -723,16 +725,6 @@ function autoFix(){
     // Fix excess 休
     while(休Days.length > 1){
       const day = 休Days.pop();
-      // Check what that day needs (which shift is currently short)
-      const dayShifts = schedules.map(x=>x[DAY_KEYS[day]]||'');
-      const 早C = dayShifts.filter(x=>x==='早').length;
-      const 晚C = dayShifts.filter(x=>x==='晚').length;
-      s[DAY_KEYS[day]] = 早C <= 晚C ? '早' : '晚';
-      (s[DAY_KEYS[day]]==='早' ? 早Days : 晚Days).push(day);
-    }
-    // Fix excess 全
-    while(全Days.length > 1){
-      const day = 全Days.pop();
       const dayShifts = schedules.map(x=>x[DAY_KEYS[day]]||'');
       const 早C = dayShifts.filter(x=>x==='早').length;
       const 晚C = dayShifts.filter(x=>x==='晚').length;
@@ -742,85 +734,38 @@ function autoFix(){
     // Fix missing 休
     if(休Days.length === 0){
       const pool = [...早Days,...晚Days];
-      // Pick a day where this person is not needed for 休/全 balance
       for(const day of pool){
         const day休 = schedules.filter(x=>x[DAY_KEYS[day]]==='休').length;
         if(day休 === 0){
-          s[DAY_KEYS[day]] = '休';
-          休Days.push(day);
-          break;
+          s[DAY_KEYS[day]] = '休'; 休Days.push(day); break;
         }
       }
       if(休Days.length === 0 && pool.length > 0){
-        s[DAY_KEYS[pool[0]]] = '休';
-        休Days.push(pool[0]);
-      }
-    }
-    // Fix missing 全
-    if(全Days.length === 0){
-      const pool = [...早Days,...晚Days];
-      for(const day of pool){
-        if(休Days.includes(day)) continue;
-        const day全 = schedules.filter(x=>x[DAY_KEYS[day]]==='全').length;
-        if(day全 === 0){
-          s[DAY_KEYS[day]] = '全';
-          全Days.push(day);
-          break;
-        }
-      }
-      if(全Days.length === 0 && pool.length > 0){
-        // Try any day not 休
-        for(const day of pool){
-          if(!休Days.includes(day)){
-            s[DAY_KEYS[day]] = '全';
-            break;
-          }
-        }
+        s[DAY_KEYS[pool[0]]] = '休'; 休Days.push(pool[0]);
       }
     }
     
-    // Balance 早/晚 for remaining days
+    // Balance 早/晚 for remaining days (Mon-Thu)
     早Days=[]; 晚Days=[];
-    for(let d=0;d<7;d++){
-      if(d === 5) continue;
+    for(let d=0;d<4;d++){
       const shift=s[DAY_KEYS[d]]||'';
       if(shift==='早') 早Days.push(d);
       else if(shift==='晚') 晚Days.push(d);
     }
-    // Should have exactly 5 days of 早+晚; balance to 2-3 early, 2-3 late
     while(Math.abs(早Days.length - 晚Days.length) > 1 && 早Days.length + 晚Days.length > 2){
-      let changed = false;
       if(早Days.length > 晚Days.length){
-        // Try to find a day where changing 早→晚 helps daily balance
-        for(const day of 早Days){
-          const day晚 = schedules.filter(x=>x[DAY_KEYS[day]]==='晚').length;
-          const day早 = schedules.filter(x=>x[DAY_KEYS[day]]==='早').length;
-          if(day早 > day晚 + 1){
-            s[DAY_KEYS[day]] = '晚';
-            早Days = 早Days.filter(x=>x!==day); 晚Days.push(day);
-            changed = true;
-            break;
-          }
-        }
-        if(!changed && 早Days.length > 0){
-          const day = 早Days.pop();
-          s[DAY_KEYS[day]] = '晚'; 晚Days.push(day);
-        }
+        const day = 早Days.pop();
+        // Prefer swapping to help daily balance
+        const day晚 = schedules.filter(x=>x[DAY_KEYS[day]]==='晚').length;
+        const day早 = schedules.filter(x=>x[DAY_KEYS[day]]==='早').length;
+        if(day早 > day晚 + 1){ s[DAY_KEYS[day]]='晚'; 晚Days.push(day); }
+        else { s[DAY_KEYS[day]]='晚'; 晚Days.push(day); }
       } else {
-        for(const day of 晚Days){
-          const day早 = schedules.filter(x=>x[DAY_KEYS[day]]==='早').length;
-          const day晚 = schedules.filter(x=>x[DAY_KEYS[day]]==='晚').length;
-          if(day晚 > day早 + 1){
-            s[DAY_KEYS[day]] = '早';
-            晚Days = 晚Days.filter(x=>x!==day); 早Days.push(day);
-            changed = true;
-            break;
-          }
-        }
-        if(!changed && 晚Days.length > 0){
-          const day = 晚Days.pop();
-          s[DAY_KEYS[day]] = '早'; 早Days.push(day);
-        }
+        const day = 晚Days.pop();
+        const day早 = schedules.filter(x=>x[DAY_KEYS[day]]==='早').length;
+        const day晚 = schedules.filter(x=>x[DAY_KEYS[day]]==='晚').length;
+        if(day晚 > day早 + 1){ s[DAY_KEYS[day]]='早'; 早Days.push(day); }
+        else { s[DAY_KEYS[day]]='早'; 早Days.push(day); }
       }
     }
   }
