@@ -120,7 +120,10 @@ def get_schedules():
     ws = request.args.get('week_start', '')
     db = get_db()
     rows = db.execute("SELECT s.*, st.name, st.brand FROM schedules s JOIN staff st ON s.staff_id=st.id WHERE s.week_start=? ORDER BY st.sort_order", (ws,)).fetchall()
-    return jsonify([dict(r) for r in rows])
+    resp = jsonify([dict(r) for r in rows])
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
 
 @app.route('/api/schedules', methods=['PUT'])
 def save_schedules():
@@ -301,7 +304,10 @@ def auto_schedule():
 
     # return full data
     rows = db.execute("SELECT s.*, st.name, st.brand FROM schedules s JOIN staff st ON s.staff_id=st.id WHERE s.week_start=? ORDER BY st.sort_order", (ws,)).fetchall()
-    return jsonify([dict(r) for r in rows])
+    resp = jsonify([dict(r) for r in rows])
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
 
 # ---- API: Publish ----
 @app.route('/api/publish', methods=['GET'])

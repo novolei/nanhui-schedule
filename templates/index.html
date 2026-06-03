@@ -1133,9 +1133,14 @@ async function doAuto(){
     const ws=$('#adminWeekPicker').value||getNextMonday();
     state.editingWeekStart=getMonday(ws);
     toast('一键排班中...');
-    const r = await api('POST','/api/schedules/auto',{week_start:state.editingWeekStart});
-    if(r.error){ toast('❌ '+r.error); return; }
-    await loadSchedules(state.editingWeekStart);
+    const schedules = await api('POST','/api/schedules/auto',{week_start:state.editingWeekStart});
+    if(schedules.error || !Array.isArray(schedules)){ toast('❌ '+(schedules.error||'排班失败')); return; }
+    state.schedules = schedules;
+    state.scheduleSnapshot = schedules.map(s => ({
+      id: s.id,
+      mon_shift:s.mon_shift,tue_shift:s.tue_shift,wed_shift:s.wed_shift,
+      thu_shift:s.thu_shift,fri_shift:s.fri_shift,sat_shift:s.sat_shift,sun_shift:s.sun_shift
+    }));
     await loadPublished();
     render();
     setTimeout(()=>runSelfCheck(),50);
