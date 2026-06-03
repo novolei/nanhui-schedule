@@ -150,44 +150,33 @@ def auto_schedule():
     n = len(staff_list)
     if n == 0: return jsonify({'schedules':[]})
 
-    days = ['mon_shift','tue_shift','wed_shift','thu_shift','fri_shift','sat_shift','sun_shift']
-    shifts = ['' for _ in range(7)]
-    result = [shifts[:] for _ in range(n)]
+    # Template schedule from Excel (6.1-6.7): 9 people x 7 days
+    # Order: 陈磊,刘晓庆,胡倩,江凤,陈梅芳,郭友琴,刘静,倪艺,杨亚男
+    TEMPLATE = [
+        ['早','休','晚','晚','早','全','早'],  # 陈磊
+        ['休','早','早','早','晚','全','晚'],  # 刘晓庆
+        ['晚','休','晚','早','晚','全','早'],  # 胡倩
+        ['晚','早','休','早','晚','全','晚'],  # 江凤
+        ['早','晚','休','晚','早','全','晚'],  # 陈梅芳
+        ['休','晚','早','晚','早','全','早'],  # 郭友琴
+        ['晚','早','晚','晚','早','全','休'],  # 刘静
+        ['早','晚','早','休','晚','全','早'],  # 倪艺
+        ['休','早','晚','早','晚','全','晚'],  # 杨亚男
+    ]
 
-    # 1) assign 休 - spread out
-    idxs = list(range(n))
-    random.shuffle(idxs)
-    for i in range(min(n, 7)):
-        result[idxs[i]][i % 7] = '休'
-    for i in range(7, n):
-        counts = [sum(1 for r in result if r[d]=='休') for d in range(7)]
-        mn = min(counts)
-        cand = [d for d,c in enumerate(counts) if c==mn]
-        result[idxs[i]][random.choice(cand)] = '休'
-
-    # 2) assign 全 - 1 per day
-    used = set()
-    for d in range(7):
-        avail = [i for i in range(n) if i not in used and result[i][d] != '休']
-        if avail:
-            pick = random.choice(avail)
-            result[pick][d] = '全'
-            used.add(pick)
-    for i in range(n):
-        if i not in used:
+    result = []
+    for i, st in enumerate(staff_list):
+        if i < len(TEMPLATE):
+            result.append(TEMPLATE[i])
+        else:
+            # For new staff beyond template, assign 休/全/早/晚 balanced
+            shifts = ['' for _ in range(7)]
+            shifts[i % 7] = '休'
+            shifts[(i+3) % 7] = '全'
             for d in range(7):
-                if result[i][d] == '':
-                    result[i][d] = '全'
-                    break
-
-    # 3) balance 早/晚 for remaining slots
-    for d in range(7):
-        empty = [i for i in range(n) if result[i][d] == '']
-        # half early, half late
-        half = len(empty) // 2
-        random.shuffle(empty)
-        for j, i in enumerate(empty):
-            result[i][d] = '早' if j < half else '晚'
+                if shifts[d] == '':
+                    shifts[d] = '早' if d % 2 == 0 else '晚'
+            result.append(shifts)
 
     # save to db
     db.execute("DELETE FROM schedules WHERE week_start=?", (ws,))
