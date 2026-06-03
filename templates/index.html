@@ -717,25 +717,12 @@ function autoFix(){
     if(s[DAY_KEYS[6]] === '全') s[DAY_KEYS[6]] = '早';
   }
 
-  // ---- Phase 1: 同班组 (同班次 — 最高优先级) ----
+  // ---- Phase 1: 对班组 (一早一晚 — 最高优先级) ----
   for(let d=0;d<7;d++){
-    if(d === 5) continue; // 周六全员全跳过
+    if(d === 5) continue;
     const key=DAY_KEYS[d];
     
-    
-    // 1. 同班组: 同班次 (优先执行)
-    for(const pair of RULES.samePairs){
-      const s0 = schedules.find(x => x.name === pair[0]);
-      const s1 = schedules.find(x => x.name === pair[1]);
-      if(!s0 || !s1) continue;
-      const sh0 = s0[key]||'', sh1 = s1[key]||'';
-      if(sh0 !== '休' && sh1 !== '休' && sh0 !== sh1){
-        // 以第一个人的班次为准
-        s1[key] = sh0;
-      }
-    }
-    
-    // 对班组: 一早一晚 (必须适用)
+    // 对班组: 一早一晚
     for(const pair of RULES.oppositePairs){
       const s0 = schedules.find(x => x.name === pair[0]);
       const s1 = schedules.find(x => x.name === pair[1]);
@@ -748,7 +735,6 @@ function autoFix(){
         s1[key] = sh0 === '早' ? '晚' : '早';
       }
     }
-    
   }
 
   // ---- Phase 2: Fix Mon-Thu to have exactly 1休 (no 全, 全只在周六) ----
@@ -901,7 +887,22 @@ function autoFix(){
       }
     }
   }
-  
+
+  // ---- Phase 5: 同班组 (同班次 — 最低优先级) ----
+  for(let d=0;d<7;d++){
+    if(d === 5) continue;
+    const key=DAY_KEYS[d];
+    for(const pair of RULES.samePairs){
+      const s0 = schedules.find(x => x.name === pair[0]);
+      const s1 = schedules.find(x => x.name === pair[1]);
+      if(!s0 || !s1) continue;
+      const sh0 = s0[key]||'', sh1 = s1[key]||'';
+      if(sh0 !== '休' && sh1 !== '休' && sh0 !== sh1){
+        s1[key] = sh0;
+      }
+    }
+  }
+
   // Re-render table and self-check
   // Update snapshot so changed markers reflect auto-fix
   state.scheduleSnapshot = state.schedules.map(s => ({

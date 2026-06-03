@@ -193,14 +193,7 @@ def auto_schedule():
     TEAMS = [['胡倩','江凤','陈梅芳','郭友琴'], ['刘静','倪艺','杨亚男']]
     for d in range(7):
         if d == 5: continue  # 周六全员全跳过
-        # 1. 同班组: 同班次 (最高优先级)
-        for a, b in SAME_PAIRS:
-            ia = staff_names.index(a) if a in staff_names else -1
-            ib = staff_names.index(b) if b in staff_names else -1
-            if ia >= 0 and ib >= 0:
-                if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] != result[ib][d]:
-                    result[ib][d] = result[ia][d]
-        # 2. 对班组: 一早一晚 (必须适用)
+        # 1. 对班组: 一早一晚 (最高优先级)
         for a, b in OPPOSITE_PAIRS:
             ia = staff_names.index(a) if a in staff_names else -1
             ib = staff_names.index(b) if b in staff_names else -1
@@ -255,6 +248,16 @@ def auto_schedule():
                         if result[i][d] == '晚' and cur_晚 - cur_早 > 1:
                             result[i][d] = '早'
                             cur_晚 -= 1; cur_早 += 1
+
+    # 4. 同班组: 同班次 (最低优先级)
+    for d in range(7):
+        if d == 5: continue
+        for a, b in SAME_PAIRS:
+            ia = staff_names.index(a) if a in staff_names else -1
+            ib = staff_names.index(b) if b in staff_names else -1
+            if ia >= 0 and ib >= 0:
+                if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] != result[ib][d]:
+                    result[ib][d] = result[ia][d]
 
     # save to db
     db.execute("DELETE FROM schedules WHERE week_start=?", (ws,))
