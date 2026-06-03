@@ -185,14 +185,26 @@ def auto_schedule():
         row[6] = '早' if row[6] in ('休','全') else row[6]
         result.append(row)
 
-    # 对班制规则强制执行 (覆写模板)
+    # 排班规则强制执行 (覆写模板)
     staff_names = [st['name'] for st in staff_list]
-    PAIRS = [('陈磊','刘晓庆')]
+    OPPOSITE_PAIRS = [('陈磊','刘晓庆')]
+    SAME_PAIRS = [('胡倩','江凤'), ('陈梅芳','郭友琴'), ('刘晓庆','杨亚男')]
     TEAMS = [['胡倩','江凤','陈梅芳','郭友琴'], ['刘静','倪艺','杨亚男']]
     for d in range(7):
         if d == 5: continue  # 周六全员全跳过
-        # Pair: 陈磊&刘晓庆 一早一晚
-        for a, b in PAIRS:
+        # 1. 同班组: 同班次 (优先)
+        for a, b in SAME_PAIRS:
+            ia = staff_names.index(a) if a in staff_names else -1
+            ib = staff_names.index(b) if b in staff_names else -1
+            if ia >= 0 and ib >= 0:
+                if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] != result[ib][d]:
+                    result[ib][d] = result[ia][d]
+                if result[ia][d] == '休' and result[ib][d] != '休':
+                    result[ia][d] = result[ib][d]
+                if result[ib][d] == '休' and result[ia][d] != '休':
+                    result[ib][d] = result[ia][d]
+        # 2. 对班组: 一早一晚
+        for a, b in OPPOSITE_PAIRS:
             ia = staff_names.index(a) if a in staff_names else -1
             ib = staff_names.index(b) if b in staff_names else -1
             if ia >= 0 and ib >= 0:
@@ -200,7 +212,7 @@ def auto_schedule():
                     result[ib][d] = '早'
                 if result[ia][d] != '休' and result[ib][d] != '休' and result[ia][d] == result[ib][d]:
                     result[ib][d] = '晚' if result[ia][d] == '早' else '早'
-        # Teams: 内部早晚平衡
+        # 3. 平衡组: 内部早晚平衡
         for team in TEAMS:
             idxs = [staff_names.index(n) for n in team if n in staff_names]
             if len(idxs) < 2: continue

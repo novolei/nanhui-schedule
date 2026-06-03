@@ -98,12 +98,15 @@ const DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
 const DAY_KEYS = ['mon_shift','tue_shift','wed_shift','thu_shift','fri_shift','sat_shift','sun_shift'];
 const SHIFTS = ['早','晚','休','全'];
 const SHIFT_COLORS = {早:'#0050b3',晚:'#d46b08',休:'#8c8c8c',全:'#237804'};
-// 对班制分组 (按staff name)
-const STAFF_GROUPS = [
-  { type:'pair', members:['陈磊','刘晓庆'], desc:'陈磊&刘晓庆对班' },
-  { type:'team', members:['胡倩','江凤','陈梅芳','郭友琴'], desc:'胡倩组对班' },
-  { type:'team', members:['刘静','倪艺','杨亚男'], desc:'刘静组对班' },
-];
+// 排班规则 (管理员可在页面编辑)
+let RULES = {
+  // 对班组: 一早一晚
+  oppositePairs: [['陈磊','刘晓庆']],
+  // 同班组: 同班次
+  samePairs: [['胡倩','江凤'],['陈梅芳','郭友琴'],['刘晓庆','杨亚男']],
+  // 平衡组: 组内早晚平衡
+  balanceTeams: [['胡倩','江凤','陈梅芳','郭友琴'],['刘静','倪艺','杨亚男']],
+};
 
 let state = { staff:[], schedules:[], publishedWeeks:[], isAdmin:false, tab:'view', editingWeekStart:null, searchName:'', scheduleSnapshot:[] };
 
@@ -429,7 +432,21 @@ function renderAdmin(){
     <button class="btn btn-sm btn-danger" onclick="delStaff(${s.id})">🗑️</button></div></div>`;
   }
   h+='</div></div>';
-  
+
+  // Rules config card
+  const allStaff=state.staff.map(s=>s.name).join(',');
+  h+=`<div class="card"><h3>📋 排班规则</h3>
+  <div style="font-size:13px;line-height:1.8">
+    <label style="font-weight:600">对班组 (一早一晚):</label><br>
+    <input id="ruleOpposite" value="${RULES.oppositePairs.map(p=>p.join('+')).join(', ')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;margin:4px 0 8px 0;font-size:13px" placeholder="例: 陈磊+刘晓庆"><br>
+    <label style="font-weight:600">同班组 (同班次):</label><br>
+    <input id="ruleSame" value="${RULES.samePairs.map(p=>p.join('+')).join(', ')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;margin:4px 0 8px 0;font-size:13px" placeholder="例: 胡倩+江凤, 陈梅芳+郭友琴"><br>
+    <label style="font-weight:600">平衡组 (组内早晚均衡):</label><br>
+    <input id="ruleBalance" value="${RULES.balanceTeams.map(t=>t.join('+')).join(', ')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;margin:4px 0 8px 0;font-size:13px" placeholder="例: 胡倩+江凤+陈梅芳+郭友琴"><br>
+    <button class="btn btn-sm btn-primary" onclick="saveRules()">💾 保存规则</button>
+    <span style="color:#999;margin-left:8px">用 <b>+</b> 连接同组人员, <b>,</b> 分隔不同组</span>
+  </div></div>`;
+
   // Editable schedule grid
   if(state.schedules.length>0){
     h+='<div class="card"><h3>📝 编辑排班 (点击班次切换)</h3>';
@@ -627,29 +644,42 @@ function runSelfCheck(){
   for(let d=0;d<7;d++){
     if(d === 5) continue; // 周六全员全
     const key=DAY_KEYS[d];
-    for(const grp of STAFF_GROUPS){
-      const memberShifts = grp.members.map(n => {
+    // 对班组检查: 一早一晚
+    for(const pair of RULES.oppositePairs){
+      const s0 = schedules.find(x => x.name === pair[0]);
+      const s1 = schedules.find(x => x.name === pair[1]);
+      if(!s0 || !s1) continue;
+      const sh0 = s0[key]||'', sh1 = s1[key]||'';
+      if(sh0 === '休' && sh1 === '休'){
+        issues.push(`<strong>${DAYS[d]}</strong>: ${pair[0]}和${pair[1]}同时休息`);
+      }
+      if(sh0 !== '休' && sh1 !== '休' && sh0 === sh1){
+        issues.push(`<strong>${DAYS[d]}</strong>: ${pair[0]}和${pair[1]}同为${sh0}，应一早一晚`);
+      }
+    }
+    // 同班组检查: 同班次
+    for(const pair of RULES.samePairs){
+      const s0 = schedules.find(x => x.name === pair[0]);
+      const s1 = schedules.find(x => x.name === pair[1]);
+      if(!s0 || !s1) continue;
+      const sh0 = s0[key]||'', sh1 = s1[key]||'';
+      if(sh0 !== sh1 && sh0 !== '休' && sh1 !== '休'){
+        issues.push(`<strong>${DAYS[d]}</strong>: ${pair[0]}(${sh0})和${pair[1]}(${sh1})应同班次`);
+      }
+    }
+    // 平衡组检查: 组内早晚平衡，不得同时休息
+    for(const team of RULES.balanceTeams){
+      const memberShifts = team.map(n => {
         const s = schedules.find(x => x.name === n);
         return s ? (s[key]||'') : '';
       });
-      if(grp.type === 'pair'){
-        // 一早一晚，不得同时休息
-        if(memberShifts[0] === '休' && memberShifts[1] === '休'){
-          issues.push(`<strong>${DAYS[d]}</strong>: ${grp.members[0]}和${grp.members[1]}同时休息`);
-        }
-        if(memberShifts[0] === memberShifts[1] && memberShifts[0] !== '休'){
-          issues.push(`<strong>${DAYS[d]}</strong>: ${grp.members[0]}和${grp.members[1]}同为${memberShifts[0]}，应一早一晚`);
-        }
-      } else {
-        // 组内早晚平衡，不得同时休息
-        const all休 = memberShifts.every(s => s === '休');
-        if(all休) issues.push(`<strong>${DAYS[d]}</strong>: ${grp.desc}同时休息`);
-        const 早Count = memberShifts.filter(s => s==='早').length;
-        const 晚Count = memberShifts.filter(s => s==='晚').length;
-        const working = 早Count + 晚Count;
-        if(working > 0 && Math.abs(早Count-晚Count) > 1){
-          issues.push(`<strong>${DAYS[d]}</strong>: ${grp.desc}早${早Count}晚${晚Count}不均衡`);
-        }
+      const all休 = memberShifts.every(s => s === '休');
+      if(all休) issues.push(`<strong>${DAYS[d]}</strong>: ${team.join('/')}同时休息`);
+      const 早Count = memberShifts.filter(s => s==='早').length;
+      const 晚Count = memberShifts.filter(s => s==='晚').length;
+      const working = 早Count + 晚Count;
+      if(working > 0 && Math.abs(早Count-晚Count) > 1){
+        issues.push(`<strong>${DAYS[d]}</strong>: ${team.join('/')}早${早Count}晚${晚Count}不均衡`);
       }
     }
   }
@@ -687,57 +717,66 @@ function autoFix(){
     if(s[DAY_KEYS[6]] === '全') s[DAY_KEYS[6]] = '早';
   }
 
-  // ---- Phase 0: 对班制强制执行 (覆写手动变更) ----
+  // ---- Phase 0: 排班规则强制执行 (覆写手动变更) ----
   for(let d=0;d<7;d++){
     if(d === 5) continue; // 周六全员全跳过
     const key=DAY_KEYS[d];
-    for(const grp of STAFF_GROUPS){
-      const getMembers = () => grp.members.map(n => schedules.find(x => x.name === n));
-      const members = getMembers();
+    
+    // 1. 同班组: 同班次 (优先执行)
+    for(const pair of RULES.samePairs){
+      const s0 = schedules.find(x => x.name === pair[0]);
+      const s1 = schedules.find(x => x.name === pair[1]);
+      if(!s0 || !s1) continue;
+      const sh0 = s0[key]||'', sh1 = s1[key]||'';
+      if(sh0 !== '休' && sh1 !== '休' && sh0 !== sh1){
+        // 以第一个人的班次为准
+        s1[key] = sh0;
+      }
+      if(sh0 === '休' && sh1 !== '休') s0[key] = sh1;
+      if(sh1 === '休' && sh0 !== '休') s1[key] = sh0;
+    }
+    
+    // 2. 对班组: 一早一晚
+    for(const pair of RULES.oppositePairs){
+      const s0 = schedules.find(x => x.name === pair[0]);
+      const s1 = schedules.find(x => x.name === pair[1]);
+      if(!s0 || !s1) continue;
+      const sh0 = s0[key]||'', sh1 = s1[key]||'';
+      if(sh0 === '休' && sh1 === '休'){
+        s1[key] = '早';
+      }
+      if(sh0 !== '休' && sh1 !== '休' && sh0 === sh1){
+        s1[key] = sh0 === '早' ? '晚' : '早';
+      }
+    }
+    
+    // 3. 平衡组: 组内早晚平衡
+    for(const team of RULES.balanceTeams){
+      const members = team.map(n => schedules.find(x => x.name === n)).filter(Boolean);
       const shifts = members.map(s => s ? (s[key]||'') : '');
-
-      if(grp.type === 'pair'){
-        // 陈磊&刘晓庆: 一早一晚
-        if(shifts[0] === '休' && shifts[1] === '休'){
-          // 不能同时休息，把一人改早
-          members[1][key] = '早';
+      const withRest = shifts.filter(s => s === '休');
+      
+      // 不能全部休息
+      if(withRest.length === members.length){
+        for(let i=0;i<Math.ceil(members.length/2);i++){
+          if(members[i][key] === '休') members[i][key] = '早';
         }
-        if(shifts[0] !== '休' && shifts[1] !== '休' && shifts[0] === shifts[1]){
-          // 同为早或晚，强制调转一人
-          members[1][key] = shifts[0] === '早' ? '晚' : '早';
-        }
-      } else {
-        // 组内平衡: 不能在所有人都同班次 (全属要平衡)
-        const withRest = shifts.filter(s => s === '休');
-        const 早上 = shifts.filter(s => s === '早').length;
-        const 晚上 = shifts.filter(s => s === '晚').length;
-        const working = 早上 + 晚上;
-
-        // 不能全部休息
-        if(withRest.length === members.length){
-          // 把一半人改早
-          for(let i=0;i<Math.ceil(members.length/2);i++){
-            if(members[i][key] === '休') members[i][key] = '早';
-          }
-        }
-
-        // 早晚平衡 (仅对上班的人)
-        const workingMembers = members.filter(s => s[key] !== '休' && s[key] !== '');
-        const cur早 = workingMembers.filter(s => s[key] === '早').length;
-        const cur晚 = workingMembers.filter(s => s[key] === '晚').length;
-        const ideal = Math.round(workingMembers.length / 2);
-
-        if(workingMembers.length >= 2 && Math.abs(cur早 - cur晚) > 1){
-          // 不平衡，调整到均衡
-          if(cur早 > cur晚){
-            const toSwap = workingMembers.filter(s => s[key] === '早');
-            const need = Math.min(toSwap.length, Math.floor((cur早 - ideal)));
-            for(let i=0;i<need;i++) toSwap[i][key] = '晚';
-          } else {
-            const toSwap = workingMembers.filter(s => s[key] === '晚');
-            const need = Math.min(toSwap.length, Math.floor((cur晚 - ideal)));
-            for(let i=0;i<need;i++) toSwap[i][key] = '早';
-          }
+      }
+      
+      // 早晚平衡
+      const workingMembers = members.filter(s => s[key] !== '休' && s[key] !== '');
+      const cur早 = workingMembers.filter(s => s[key] === '早').length;
+      const cur晚 = workingMembers.filter(s => s[key] === '晚').length;
+      
+      if(workingMembers.length >= 2 && Math.abs(cur早 - cur晚) > 1){
+        if(cur早 > cur晚){
+          const toSwap = workingMembers.filter(s => s[key] === '早');
+          const need = Math.min(toSwap.length, Math.floor((cur早 - Math.round(workingMembers.length/2))));
+          for(let i=0;i<need;i++) toSwap[i][key] = '晚';
+        } else {
+          const toSwap = workingMembers.filter(s => s[key] === '晚');
+          const need = Math.min(toSwap.length, Math.floor((cur晚 - Math.round(workingMembers.length/2))));
+          for(let i=0;i<need;i++) toSwap[i][key] = '早';
         }
       }
     }
@@ -873,6 +912,22 @@ function autoFix(){
   render();
   runSelfCheck();
   toast('🔧 已自动修复，请检查结果');
+}
+
+function saveRules(){
+  // Parse opposite pairs: "陈磊+刘晓庆, " -> [['陈磊','刘晓庆']]
+  const parsePairs = (str) => str.split(',').map(s => s.trim()).filter(Boolean).map(p => p.split('+').map(n => n.trim()).filter(Boolean));
+  
+  const oppRaw = $('#ruleOpposite').value;
+  const sameRaw = $('#ruleSame').value;
+  const balRaw = $('#ruleBalance').value;
+  
+  RULES.oppositePairs = parsePairs(oppRaw);
+  RULES.samePairs = parsePairs(sameRaw);
+  RULES.balanceTeams = parsePairs(balRaw);
+  
+  toast('✅ 规则已保存');
+  runSelfCheck();
 }
 
 async function saveEdits(){
