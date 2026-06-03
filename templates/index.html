@@ -458,6 +458,8 @@ function renderAdmin(){
       h+=`<div style="text-align:center;margin:8px 0;padding:6px 12px;background:#fff2f0;border:1px solid #ffccc7;border-radius:6px;font-size:13px;color:#cf1322">🔄 ${changeCount} 处待保存变更</div>`;
     }
     h+=`<button class="btn btn-primary btn-block" style="margin-top:10px" onclick="saveEdits()">💾 保存修改</button>`;
+    // Self-check panel
+    h+=`<div id="selfCheckPanel" style="margin-top:12px"></div>`;
     h+='</div>';
   }
   
@@ -534,6 +536,91 @@ function cycleShift(scheduleId, dayIdx, el){
   } else {
     el.classList.remove('changed');
   }
+
+  // Run self-check after each change
+  runSelfCheck();
+}
+
+function runSelfCheck(){
+  const panel = document.getElementById('selfCheckPanel');
+  if(!panel) return;
+  const schedules = state.schedules;
+  if(!schedules || schedules.length === 0){panel.innerHTML='';return}
+  
+  const staffCount = schedules.length; // 9
+  const issues = [];
+  const suggestions = [];
+  
+  // 1. Daily balance check: for each day, count 早/晚/休/全
+  for(let d=0;d<7;d++){
+    const key=DAY_KEYS[d];
+    const counts = {早:0,晚:0,休:0,全:0};
+    let totalWorking = 0;
+    for(const s of schedules){
+      const shift=s[key]||'';
+      if(counts[shift]!==undefined) counts[shift]++;
+      if(shift==='早'||shift==='晚') totalWorking++;
+    }
+    // Ideal: 9人, 1休1全 → 7人分早/晚, 约3-4早, 3-4晚
+    const idealShift = Math.round(totalWorking/2);
+    const diffs = [];
+    if(Math.abs(counts['早'] - counts['晚']) > 1 && totalWorking > 2){
+      diffs.push(`早${counts['早']}人 / 晚${counts['晚']}人 不均`);
+    }
+    if(counts['休'] !== 1){
+      diffs.push(`休${counts['休']}人 (应为1人)`);
+    }
+    if(counts['全'] !== 1){
+      diffs.push(`全${counts['全']}人 (应为1人)`);
+    }
+    if(diffs.length > 0){
+      issues.push(`<strong>${DAYS[d]}</strong>: ${diffs.join('；')}`);
+      suggestions.push(`<strong>${DAYS[d]}</strong>建议调整至 早${idealShift}晚${idealShift}休1全1`);
+    }
+  }
+  
+  // 2. Per-person weekly balance check
+  for(const s of schedules){
+    let 早Count=0, 晚Count=0, 休Count=0, 全Count=0;
+    for(let d=0;d<7;d++){
+      const shift=s[DAY_KEYS[d]]||'';
+      if(shift==='早')早Count++;
+      else if(shift==='晚')晚Count++;
+      else if(shift==='休')休Count++;
+      else if(shift==='全')全Count++;
+    }
+    const personIssues = [];
+    // Check 早/晚 balance: weekly 早+晚 should be 4-5 (since 1休+1全)
+    const totalShifts = 早Count+晚Count;
+    if(休Count > 1) personIssues.push(`休${休Count}天 (建议1天)`);
+    if(全Count > 1) personIssues.push(`全${全Count}天 (建议1天)`);
+    if(Math.abs(早Count-晚Count) > 1 && totalShifts > 2){
+      personIssues.push(`早${早Count}晚${晚Count} 早晚不均衡`);
+    }
+    if(晚Count > 3) personIssues.push(`晚班${晚Count}天偏多`);
+    if(早Count > 4) personIssues.push(`早班${早Count}天偏多`);
+    if(personIssues.length > 0){
+      issues.push(`<strong>${s.name}</strong>: ${personIssues.join('；')}`);
+      suggestions.push(`<strong>${s.name}</strong>建议: 早${Math.round(totalShifts/2)}晚${Math.floor(totalShifts/2)}休1全1`);
+    }
+  }
+  
+  // Render panel
+  if(issues.length === 0){
+    panel.innerHTML='<div style="padding:10px 14px;background:#f6ffed;border:1px solid #b7eb8f;border-radius:8px;font-size:13px;color:#389e0d">✅ 排班检查通过，分布合理</div>';
+    return;
+  }
+  
+  let html='<div style="background:#fffbe6;border:1px solid #ffe58f;border-radius:8px;padding:12px;font-size:13px">';
+  html+=`<div style="font-weight:600;color:#d48806;margin-bottom:8px">⚠️ 排班检查发现 ${issues.length} 个问题</div>`;
+  html+='<ul style="margin:0 0 8px 0;padding-left:16px;line-height:1.8">';
+  for(const iss of issues) html+=`<li style="color:#cf1322">${iss}</li>`;
+  html+='</ul>';
+  html+='<details style="margin-top:4px"><summary style="color:#d48806;cursor:pointer;font-weight:500">💡 查看调整建议</summary>';
+  html+='<ul style="margin:6px 0 0 0;padding-left:16px;line-height:1.8">';
+  for(const sug of suggestions) html+=`<li style="color:#389e0d">${sug}</li>`;
+  html+='</ul></details></div>';
+  panel.innerHTML=html;
 }
 
 async function saveEdits(){
@@ -552,6 +639,7 @@ async function saveEdits(){
     thu_shift:s.thu_shift,fri_shift:s.fri_shift,sat_shift:s.sat_shift,sun_shift:s.sun_shift
   }));
   render();
+  setTimeout(()=>runSelfCheck(),50);
   toast('✅ 已保存');
 }
 
@@ -563,6 +651,7 @@ async function doAuto(){
   await loadSchedules(state.editingWeekStart);
   await loadPublished();
   render();
+  setTimeout(()=>runSelfCheck(),50);
   toast('✅ 排班完成，可手动微调');
 }
 
@@ -591,6 +680,7 @@ async function adminLoadWeek(){
   await loadSchedules(state.editingWeekStart);
   await loadPublished();
   render();
+  setTimeout(()=>runSelfCheck(),50);
   toast('已加载');
 }
 
