@@ -553,6 +553,8 @@ function runSelfCheck(){
   
   // 1. Daily balance check: for each day, count 早/晚/休/全
   for(let d=0;d<7;d++){
+    // 原则：周六全员全班，跳过检查
+    if(d === 5) continue;
     const key=DAY_KEYS[d];
     const counts = {早:0,晚:0,休:0,全:0};
     let totalWorking = 0;
@@ -575,7 +577,7 @@ function runSelfCheck(){
     }
     if(diffs.length > 0){
       issues.push(`<strong>${DAYS[d]}</strong>: ${diffs.join('；')}`);
-      suggestions.push(`<strong>${DAYS[d]}</strong>建议调整至 早${idealShift}晚${idealShift}休1全1`);
+      suggestions.push(`<strong>${DAYS[d]}</strong>建议调整至 早${idealShift}晚${idealShift}休1 (周六全员全)`);
     }
   }
   
@@ -583,6 +585,7 @@ function runSelfCheck(){
   for(const s of schedules){
     let 早Count=0, 晚Count=0, 休Count=0, 全Count=0;
     for(let d=0;d<7;d++){
+      if(d === 5) continue; // 周六全员全，不计入个人平衡统计
       const shift=s[DAY_KEYS[d]]||'';
       if(shift==='早')早Count++;
       else if(shift==='晚')晚Count++;
@@ -590,10 +593,10 @@ function runSelfCheck(){
       else if(shift==='全')全Count++;
     }
     const personIssues = [];
-    // Check 早/晚 balance: weekly 早+晚 should be 4-5 (since 1休+1全)
+    // Check 早/晚 balance: weekly 早+晚 should be 5 (周六全 + 1休 + 5天早/晚)
     const totalShifts = 早Count+晚Count;
     if(休Count > 1) personIssues.push(`休${休Count}天 (建议1天)`);
-    if(全Count > 1) personIssues.push(`全${全Count}天 (建议1天)`);
+    if(全Count > 0) personIssues.push(`非周六全${全Count}天 (全仅周六)`);
     if(Math.abs(早Count-晚Count) > 1 && totalShifts > 2){
       personIssues.push(`早${早Count}晚${晚Count} 早晚不均衡`);
     }
@@ -601,7 +604,7 @@ function runSelfCheck(){
     if(早Count > 4) personIssues.push(`早班${早Count}天偏多`);
     if(personIssues.length > 0){
       issues.push(`<strong>${s.name}</strong>: ${personIssues.join('；')}`);
-      suggestions.push(`<strong>${s.name}</strong>建议: 早${Math.round(totalShifts/2)}晚${Math.floor(totalShifts/2)}休1全1`);
+      suggestions.push(`<strong>${s.name}</strong>建议: 早${Math.round(totalShifts/2)}晚${Math.floor(totalShifts/2)}休1 (周六全)`);
     }
   }
   
@@ -628,9 +631,15 @@ function runSelfCheck(){
 function autoFix(){
   const schedules = state.schedules;
   if(!schedules || schedules.length === 0) return;
-  
-  // ---- Phase 1: Fix each day to have exactly 1休 + 1全 ----
+
+  // 原则：周六全员全班
+  for(const s of schedules){
+    s[DAY_KEYS[5]] = '全';
+  }
+
+  // ---- Phase 1: Fix each day to have exactly 1休 + 1全 (skip Saturday) ----
   for(let d=0;d<7;d++){
+    if(d === 5) continue; // 周六全员全，跳过
     const key=DAY_KEYS[d];
     // Count current
     let 休People=[], 全People=[], 早People=[], 晚People=[];
@@ -699,10 +708,11 @@ function autoFix(){
     }
   }
   
-  // ---- Phase 2: Fix each person to have exactly 1休 + 1全 ----
+  // ---- Phase 2: Fix each person to have exactly 1休 + 1全 (周六固定全) ----
   for(const s of schedules){
     let 休Days=[], 全Days=[], 早Days=[], 晚Days=[];
     for(let d=0;d<7;d++){
+      if(d === 5) continue; // 周六固定全，不参与调整
       const shift=s[DAY_KEYS[d]]||'';
       if(shift==='休') 休Days.push(d);
       else if(shift==='全') 全Days.push(d);
@@ -772,6 +782,7 @@ function autoFix(){
     // Balance 早/晚 for remaining days
     早Days=[]; 晚Days=[];
     for(let d=0;d<7;d++){
+      if(d === 5) continue;
       const shift=s[DAY_KEYS[d]]||'';
       if(shift==='早') 早Days.push(d);
       else if(shift==='晚') 晚Days.push(d);

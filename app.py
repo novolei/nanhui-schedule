@@ -171,7 +171,7 @@ def auto_schedule():
     result = []
     for i, st in enumerate(staff_list):
         if i < len(TEMPLATE):
-            result.append(TEMPLATE[i])
+            row = list(TEMPLATE[i])
         else:
             # For new staff beyond template, assign 休/全/早/晚 balanced
             shifts = ['' for _ in range(7)]
@@ -180,7 +180,10 @@ def auto_schedule():
             for d in range(7):
                 if shifts[d] == '':
                     shifts[d] = '早' if d % 2 == 0 else '晚'
-            result.append(shifts)
+            row = shifts
+        # 原则：周六全员全班
+        row[5] = '全'
+        result.append(row)
 
     # save to db
     db.execute("DELETE FROM schedules WHERE week_start=?", (ws,))
