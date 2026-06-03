@@ -260,6 +260,12 @@ function renderMySchedule(st, ss, ws){
     h+=`<div class="day-cell shift-${shift}"><div class="day-label">${DAYS[i]}<br><span style="font-weight:400;font-size:10px;color:#999">${dates[i]}日</span></div><div style="font-size:16px;font-weight:700;margin-top:4px">${shift||'-'}</div></div>`;
   }
   h+='</div></div>';
+  // Share button
+  const shareUrl = window.location.origin + '/share/' + encodeURIComponent(st.name);
+  h+=`<div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn btn-primary" style="flex:1" onclick="copyShare('${encodeURIComponent(st.name)}')">📤 分享到微信</button>
+    <button class="btn btn-outline" onclick="saveScreenshot()">📷 截图保存</button>
+  </div>`;
   return h;
 }
 
@@ -277,6 +283,51 @@ async function loadWeek(){
   await loadSchedules(state.editingWeekStart);
   await loadPublished();
   render();
+}
+
+function copyShare(name){
+  const url = window.location.origin + '/share/' + name;
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(url).then(()=>{
+      toast('✅ 链接已复制，发到微信群即可');
+    }).catch(()=>{fallbackCopy(url);});
+  } else {
+    fallbackCopy(url);
+  }
+}
+
+function fallbackCopy(url){
+  const ta = document.createElement('textarea');
+  ta.value = url;
+  ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.append(ta);
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
+  toast('✅ 链接已复制，发到微信群即可');
+}
+
+function saveScreenshot(){
+  // Use html2canvas to capture the schedule card
+  const card = document.querySelector('.my-schedule');
+  if(!card){toast('请先查询排班');return}
+  // Load html2canvas dynamically
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+  s.onload = async () => {
+    try {
+      const canvas = await html2canvas(card, {backgroundColor:'#fff', scale:2});
+      const link = document.createElement('a');
+      link.download = '排班_' + document.querySelector('.my-name')?.textContent?.trim()?.replace('👋','').trim() + '.png';
+      link.href = canvas.toDataURL();
+      link.click();
+      toast('✅ 截图已保存');
+    } catch(e) {
+      toast('截图失败: '+e.message);
+    }
+  };
+  s.onerror = () => toast('加载截图库失败');
+  document.head.append(s);
 }
 
 // ----- Admin -----

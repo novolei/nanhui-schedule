@@ -233,6 +233,46 @@ def check_password():
     ok = hashlib.sha256(pwd.encode()).hexdigest() == PASSWORD_HASH
     return jsonify({'ok': ok})
 
+# ---- Share page (server-rendered with OG tags for WeChat) ----
+DAYS_CN = ['周一','周二','周三','周四','周五','周六','周日']
+DAY_KEYS = ['mon_shift','tue_shift','wed_shift','thu_shift','fri_shift','sat_shift','sun_shift']
+
+@app.route('/share/<name>')
+def share(name):
+    db = get_db()
+    # find staff
+    st = db.execute("SELECT * FROM staff WHERE name=? AND is_active=1", (name,)).fetchone()
+    if not st:
+        return '<h2 style="text-align:center;margin-top:100px;color:#999">未找到该员工</h2>', 404
+
+    # get latest published week
+    pub = db.execute("SELECT week_start FROM published_weeks ORDER BY week_start DESC LIMIT 1").fetchone()
+    if not pub:
+        return '<h2 style="text-align:center;margin-top:100px;color:#999">暂无已发布的排班</h2>', 404
+
+    ws = pub['week_start']
+    row = db.execute("SELECT * FROM schedules WHERE week_start=? AND staff_id=?", (ws, st['id'])).fetchone()
+    if not row:
+        return '<h2 style="text-align:center;margin-top:100px;color:#999">暂无排班数据</h2>', 404
+
+    d = datetime.strptime(ws, '%Y-%m-%d')
+    week_end = d + timedelta(days=6)
+    week_label = f'{d.month}月{d.day}日 - {week_end.month}月{week_end.day}日'
+
+    days = []
+    for i, label in enumerate(DAYS_CN):
+        dt = d + timedelta(days=i)
+        shift = row[DAY_KEYS[i]] or '-'
+        days.append({'label': label, 'date': f'{dt.month}/{dt.day}', 'shift': shift})
+
+    return render_template('share.html',
+        name=name,
+        week_label=week_label,
+        days=days,
+        base_url=request.url_root.rstrip('/'),
+        request_url=request.url)
+
+
 # ---- Serve frontend ----
 @app.route('/')
 def index():
