@@ -610,19 +610,22 @@ function runSelfCheck(){
       else if(shift==='休')休Count++;
       else if(shift==='全')全Count++;
     }
-    const personIssues = [];
-    // Check 早/晚 balance: Mon-Thu = 4天, 1休, 剩3天早/晚
+    // Check 早/晚 balance: Mon-Thu = 4天, 1休, 剩3天; 全周(除休全)应有3早2晚
     const totalShifts = 早Count+晚Count;
-    if(休Count > 1) personIssues.push(`休${休Count}天 (建议1天)`);
+    if(休Count !== 1) personIssues.push(`休${休Count}天 (应恰1天)`);
     if(全Count > 0) personIssues.push(`非周六全${全Count}天 (全仅周六)`);
-    if(Math.abs(早Count-晚Count) > 1 && totalShifts > 2){
-      personIssues.push(`早${早Count}晚${晚Count} 早晚不均衡`);
+    // 全周目标: 3早2晚1休1全(周六)
+    const 非休非全 = schedules.filter(x=>x.name===s.name)[0];
+    if(非休非全){
+      const all早 = ['mon_shift','tue_shift','wed_shift','thu_shift','fri_shift','sun_shift'].filter(k=>非休非全[k]==='早').length;
+      const all晚 = ['mon_shift','tue_shift','wed_shift','thu_shift','fri_shift','sun_shift'].filter(k=>非休非全[k]==='晚').length;
+      const expected = all早 + all晚; // 应为5
+      if(all早 !== 3) personIssues.push(`早班${all早}天 (应为3天)`);
+      if(all晚 !== 2) personIssues.push(`晚班${all晚}天 (应为2天)`);
     }
-    if(晚Count > 2) personIssues.push(`晚班${晚Count}天偏多`);
-    if(早Count > 2) personIssues.push(`早班${早Count}天偏多`);
     if(personIssues.length > 0){
       issues.push(`<strong>${s.name}</strong>: ${personIssues.join('；')}`);
-      suggestions.push(`<strong>${s.name}</strong>建议: 早${Math.round(totalShifts/2)}晚${Math.floor(totalShifts/2)}休1 (周五六日全上班)`);
+      suggestions.push(`<strong>${s.name}</strong>建议: 3早2晚1休 (周五六日全上班)`);
     }
   }
   
@@ -717,12 +720,6 @@ function autoFix(){
     if(d === 5) continue; // 周六全员全跳过
     const key=DAY_KEYS[d];
     
-    // 0. 刘晓庆早班优先
-    const lxq = schedules.find(x => x.name === '刘晓庆');
-    if(lxq) {
-      const sh = lxq[key]||'';
-      if(sh !== '休' && sh !== '全') lxq[key] = '早';
-    }
     
     // 1. 同班组: 同班次 (优先执行)
     for(const pair of RULES.samePairs){
@@ -844,7 +841,7 @@ function autoFix(){
     }
   }
   
-  // ---- Phase 2: Fix each person - exactly 1休 (Mon-Thu only), 全只在周六 ----
+  // ---- Phase 2: Fix each person - exactly 1休 (Mon-Thu only), 3早2晚1休1全 ----
   for(const s of schedules){
     let 休Days=[], 早Days=[], 晚Days=[];
     for(let d=0;d<7;d++){
@@ -879,27 +876,25 @@ function autoFix(){
       }
     }
     
-    // Balance 早/晚 for remaining days (Mon-Thu)
-    早Days=[]; 晚Days=[];
-    for(let d=0;d<4;d++){
+    // ---- 调整为3早2晚 (针对非休非全的5天: Mon/ Tue/ Wed/ Thu工作 + Fri + Sun) ----
+    // 先收集所有非休非全的天
+    const workDays = [];
+    for(let d=0;d<7;d++){
+      if(d===5) continue; // 周六全跳过
       const shift=s[DAY_KEYS[d]]||'';
-      if(shift==='早') 早Days.push(d);
-      else if(shift==='晚') 晚Days.push(d);
+      if(shift!=='休' && shift!=='全' && shift!=='') workDays.push({d,shift});
     }
-    while(Math.abs(早Days.length - 晚Days.length) > 1 && 早Days.length + 晚Days.length > 2){
-      if(早Days.length > 晚Days.length){
-        const day = 早Days.pop();
-        // Prefer swapping to help daily balance
-        const day晚 = schedules.filter(x=>x[DAY_KEYS[day]]==='晚').length;
-        const day早 = schedules.filter(x=>x[DAY_KEYS[day]]==='早').length;
-        if(day早 > day晚 + 1){ s[DAY_KEYS[day]]='晚'; 晚Days.push(day); }
-        else { s[DAY_KEYS[day]]='晚'; 晚Days.push(day); }
-      } else {
-        const day = 晚Days.pop();
-        const day早 = schedules.filter(x=>x[DAY_KEYS[day]]==='早').length;
-        const day晚 = schedules.filter(x=>x[DAY_KEYS[day]]==='晚').length;
-        if(day晚 > day早 + 1){ s[DAY_KEYS[day]]='早'; 早Days.push(day); }
-        else { s[DAY_KEYS[day]]='早'; 早Days.push(day); }
+    let 早c = workDays.filter(x=>x.shift==='早').length;
+    let 晚c = workDays.filter(x=>x.shift==='晚').length;
+    const total = 早c+晚c; // 应为5
+    if(total === 5 && (早c !== 3 || 晚c !== 2)){
+      for(const w of workDays){
+        if(早c > 3 && w.shift === '早'){
+          s[DAY_KEYS[w.d]] = '晚'; 早c--; 晚c++;
+        } else if(晚c > 2 && w.shift === '晚'){
+          s[DAY_KEYS[w.d]] = '早'; 晚c--; 早c++;
+        }
+        if(早c===3 && 晚c===2) break;
       }
     }
   }

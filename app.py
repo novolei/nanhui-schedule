@@ -185,14 +185,32 @@ def auto_schedule():
         row[6] = '早' if row[6] in ('休','全') else row[6]
         result.append(row)
 
-    # 刘晓庆早班优先 (她喜欢上早班)
     staff_names = [st['name'] for st in staff_list]
-    lxq_idx = staff_names.index('刘晓庆') if '刘晓庆' in staff_names else -1
-    if lxq_idx >= 0:
-        for d in range(7):
-            if d == 5: continue  # 周六全员全
-            if result[lxq_idx][d] not in ('休', '全'):
-                result[lxq_idx][d] = '早'
+    
+    # 每人每周3早2晚1休1全 (除周六全外, 其余6天: 1休+3早+2晚)
+    for row in result:
+        # 确保 Mon-Thu 恰有1天休
+        mon_thu_休 = [d for d in range(4) if row[d] == '休']
+        while len(mon_thu_休) > 1:
+            d = mon_thu_休.pop()
+            row[d] = '早' if sum(1 for x in result if x[d]=='早') <= sum(1 for x in result if x[d]=='晚') else '晚'
+        if len(mon_thu_休) == 0:
+            for d in range(4):
+                if row[d] in ('早','晚'):
+                    row[d] = '休'
+                    break
+        # 统计非休非全的天 (应为5天)
+        days = [d for d in range(7) if row[d] not in ('休','全')]
+        早c = sum(1 for d in days if row[d]=='早')
+        晚c = sum(1 for d in days if row[d]=='晚')
+        # 调整为3早2晚
+        for d in days:
+            if 早c > 3 and row[d] == '早':
+                row[d] = '晚'
+                早c -= 1; 晚c += 1
+            elif 晚c > 2 and row[d] == '晚':
+                row[d] = '早'
+                晚c -= 1; 早c += 1
 
     # 排班规则强制执行 (覆写模板)
     OPPOSITE_PAIRS = [('陈磊','刘晓庆')]
