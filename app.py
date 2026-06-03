@@ -344,6 +344,7 @@ def export_excel():
         serial = (dt - excel_epoch).days
         cell_date = ws.cell(row=2, column=i+3, value=serial)
         cell_date.font = font_date
+        cell_date.number_format = 'm/d'
         cell_date.alignment = align_center
         cell_date.border = thin_border
 
